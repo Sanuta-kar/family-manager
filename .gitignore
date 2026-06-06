@@ -1,0 +1,40 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Prisma
+apps/api/prisma/generated/
+
+# Android / Gradle
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
+*.apk
+*.aab
+local.properties
+
+# Docker / runtime data
+infra/docker/data/
+postgres-data/
+redis-data/
+proof-storage/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.iml
+
