@@ -1,0 +1,8 @@
+:80 {
+  respond "Family Mission API reverse proxy is running"
+}
+
+family.example.com {
+  reverse_proxy api:4000
+}
+

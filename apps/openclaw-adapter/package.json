@@ -1,0 +1,23 @@
+{
+  "name": "@family-manager/openclaw-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"OpenClaw adapter tests not implemented yet\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@family-manager/shared": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
+

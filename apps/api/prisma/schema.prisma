@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  parent @map("parent")
+  child  @map("child")
+}
+
+enum MissionStatus {
+  scheduled     @map("scheduled")
+  notified      @map("notified")
+  snoozed       @map("snoozed")
+  proof_pending @map("proof_pending")
+  parent_review @map("parent_review")
+  completed     @map("completed")
+  failed        @map("failed")
+  cancelled     @map("cancelled")
+}
+
+enum ChatActionDraftStatus {
+  drafted   @map("drafted")
+  confirmed @map("confirmed")
+  rejected  @map("rejected")
+  expired   @map("expired")
+  invalid   @map("invalid")
+}
+
+enum AlertStatus {
+  open      @map("open")
+  resolved  @map("resolved")
+  dismissed @map("dismissed")
+}
+
+enum ChatMessageSender {
+  user      @map("user")
+  openclaw  @map("openclaw")
+  system    @map("system")
+}
+
+model Family {
+  id          String   @id @default(cuid())
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+  children    ChildProfile[]
+  devices     Device[]
+  missions    MissionTemplate[]
+  alerts      Alert[]
+  presets     AgentPersonalityPreset[]
+  chatThreads ChatThread[]
+}
+
+model User {
+  id                    String   @id @default(cuid())
+  familyId              String
+  family                Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  role                  UserRole
+  name                  String
+  email                 String?
+  passwordHash          String?
+  childProfileId        String?  @unique
+  childProfile          ChildProfile? @relation("ChildUser", fields: [childProfileId], references: [id])
+  personalityPresetId   String?
+  personalityPreset     AgentPersonalityPreset? @relation(fields: [personalityPresetId], references: [id])
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  ownedMissionTemplates MissionTemplate[] @relation("MissionOwner")
+  chatMessages          ChatMessage[]
+
+  @@unique([familyId, email])
+  @@index([familyId, role])
+}
+
+model ChildProfile {
+  id                          String   @id @default(cuid())
+  familyId                    String
+  family                      Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  name                        String
+  timezone                    String   @default("Asia/Jerusalem")
+  defaultPersonalityPresetId  String?
+  defaultPersonalityPreset    AgentPersonalityPreset? @relation("ChildDefaultPreset", fields: [defaultPersonalityPresetId], references: [id])
+  coinBalance                 Int      @default(0)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  user                        User?    @relation("ChildUser")
+  devices                     Device[]
+  missionTemplates            MissionTemplate[]
+  missionOccurrences          MissionOccurrence[]
+  chatThreads                 ChatThread[]
+
+  @@index([familyId])
+}
+
+model Device {
+  id             String   @id @default(cuid())
+  familyId       String
+  family         Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  childProfileId String
+  childProfile   ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+  name           String
+  platform       String
+  fcmToken       String?
+  pairedAt       DateTime @default(now())
+  lastSeenAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([familyId, childProfileId])
+}
+
+model DevicePairingCode {
+  id             String   @id @default(cuid())
+  familyId       String
+  childProfileId String
+  codeHash       String   @unique
+  expiresAt      DateTime
+  claimedAt      DateTime?
+  createdAt      DateTime @default(now())
+}
+
+model AgentPersonalityPreset {
+  id             String   @id @default(cuid())
+  familyId       String
+  family         Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  name           String
+  audience       String
+  systemPrompt   String
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  users          User[]
+  childDefaults  ChildProfile[] @relation("ChildDefaultPreset")
+
+  @@index([familyId])
+}
+
+model MissionTemplate {
+  id              String   @id @default(cuid())
+  familyId        String
+  family          Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  childProfileId  String
+  childProfile    ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+  ownerUserId     String
+  ownerUser       User     @relation("MissionOwner", fields: [ownerUserId], references: [id])
+  title           String
+  scheduledTime   String
+  recurrenceRule  String?
+  isProtected     Boolean  @default(false)
+  proofPolicy     Json
+  snoozePolicy    Json
+  rewardPolicy    Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  occurrences     MissionOccurrence[]
+
+  @@index([familyId, childProfileId])
+}
+
+model MissionOccurrence {
+  id                 String   @id @default(cuid())
+  familyId           String
+  templateId         String
+  template           MissionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  childProfileId     String
+  childProfile       ChildProfile @relation(fields: [childProfileId], references: [id], onDelete: Cascade)
+  scheduledFor       DateTime
+  status             MissionStatus @default(scheduled)
+  currentDeadlineAt  DateTime?
+  completedAt        DateTime?
+  failedAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  snoozes            SnoozeEvent[]
+  proofs             ProofSubmission[]
+  alerts             Alert[]
+  coinLedgerEntries  CoinLedger[]
+
+  @@index([familyId, childProfileId, scheduledFor])
+  @@index([familyId, status])
+}
+
+model SnoozeEvent {
+  id                  String   @id @default(cuid())
+  occurrenceId        String
+  occurrence          MissionOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  requestedMinutes    Int
+  approvedMinutes     Int?
+  source              String
+  decision            String
+  reason              String?
+  createdAt           DateTime @default(now())
+}
+
+model ProofSubmission {
+  id                  String   @id @default(cuid())
+  occurrenceId        String
+  occurrence          MissionOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  type                String
+  payload             Json
+  confidence          Float?
+  reviewStatus        String?
+  createdAt           DateTime @default(now())
+}
+
+model Alert {
+  id                  String   @id @default(cuid())
+  familyId            String
+  family              Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  occurrenceId        String?
+  occurrence          MissionOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  childProfileId      String?
+  status              AlertStatus @default(open)
+  title               String
+  message             String
+  createdAt           DateTime @default(now())
+  resolvedAt          DateTime?
+
+  @@index([familyId, status])
+}
+
+model CoinLedger {
+  id                  String   @id @default(cuid())
+  familyId            String
+  childProfileId      String
+  occurrenceId        String?
+  occurrence          MissionOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  amount              Int
+  reason              String
+  createdAt           DateTime @default(now())
+
+  @@index([familyId, childProfileId])
+}
+
+model ChatThread {
+  id                  String   @id @default(cuid())
+  familyId            String
+  family              Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  userId              String
+  childProfileId      String?
+  childProfile        ChildProfile? @relation(fields: [childProfileId], references: [id])
+  title               String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  messages            ChatMessage[]
+  actionDrafts        ChatActionDraft[]
+
+  @@index([familyId, userId])
+}
+
+model ChatMessage {
+  id                  String   @id @default(cuid())
+  threadId            String
+  thread              ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id])
+  sender              ChatMessageSender
+  text                String
+  metadata            Json?
+  createdAt           DateTime @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+model ChatActionDraft {
+  id                  String   @id @default(cuid())
+  threadId            String
+  thread              ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId              String
+  type                String
+  status              ChatActionDraftStatus @default(drafted)
+  payload             Json
+  validationErrors    Json?
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([threadId, status])
+}
+
+model AgentAuditLog {
+  id                  String   @id @default(cuid())
+  familyId            String
+  userId              String
+  threadId            String?
+  allowedActions      Json
+  contextSummary      String
+  response            Json
+  decisionResult      String
+  createdAt           DateTime @default(now())
+
+  @@index([familyId, userId])
+}
+

@@ -1,0 +1,78 @@
+package com.familymanager.app.data
+
+import com.familymanager.app.BuildConfig
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+class ApiClient(
+    private val baseUrl: String = BuildConfig.API_BASE_URL,
+    private val tokenProvider: () -> String? = { null }
+) {
+    private val client = HttpClient(Android) {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true })
+        }
+    }
+
+    suspend fun bootstrapParent(request: BootstrapParentRequest): AuthResponse {
+        return client.post("$baseUrl/auth/parent/bootstrap") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+    }
+
+    suspend fun today(childId: String): List<MissionOccurrenceDto> {
+        return client.get("$baseUrl/children/$childId/missions/today") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.body()
+    }
+
+    suspend fun sendChatMessage(threadId: String, text: String): ChatSendResponse {
+        return client.post("$baseUrl/chat/threads/$threadId/messages") {
+            tokenProvider()?.let { bearerAuth(it) }
+            contentType(ContentType.Application.Json)
+            setBody(ChatMessageRequest(text))
+        }.body()
+    }
+}
+
+@Serializable
+data class BootstrapParentRequest(
+    val familyName: String,
+    val name: String,
+    val email: String,
+    val password: String
+)
+
+@Serializable
+data class AuthResponse(
+    val accessToken: String,
+    val refreshToken: String
+)
+
+@Serializable
+data class MissionOccurrenceDto(
+    val id: String,
+    val scheduledFor: String,
+    val status: String
+)
+
+@Serializable
+data class ChatMessageRequest(val text: String)
+
+@Serializable
+data class ChatSendResponse(
+    val actionDraftId: String? = null
+)
+

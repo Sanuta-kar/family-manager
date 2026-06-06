@@ -1,0 +1,90 @@
+services:
+  reverse-proxy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: postgresql://family:family@postgres:5432/family_manager?schema=public
+      REDIS_URL: redis://redis:6379
+      OPENCLAW_ADAPTER_URL: http://openclaw-adapter:4010
+      PROOF_STORAGE_PATH: /var/lib/family-manager/proofs
+    volumes:
+      - proof-storage:/var/lib/family-manager/proofs
+    depends_on:
+      - postgres
+      - redis
+      - openclaw-adapter
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: postgresql://family:family@postgres:5432/family_manager?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  openclaw-adapter:
+    build:
+      context: ../..
+      dockerfile: apps/openclaw-adapter/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 4010
+      OPENCLAW_BASE_URL: http://openclaw:8080
+    depends_on:
+      - openclaw
+
+  openclaw:
+    image: openclaw/openclaw:latest
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+    volumes:
+      - openclaw-data:/data
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: family
+      POSTGRES_PASSWORD: family
+      POSTGRES_DB: family_manager
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-data:
+  proof-storage:
+  openclaw-data:
+

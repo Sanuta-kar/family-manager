@@ -1,0 +1,40 @@
+{
+  "name": "@family-manager/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@family-manager/shared": "workspace:*",
+    "@fastify/multipart": "^8.3.1",
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/platform-fastify": "^10.4.15",
+    "@prisma/client": "^6.1.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.1",
+    "nanoid": "^5.0.9",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.8",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.2",
+    "prisma": "^6.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
+

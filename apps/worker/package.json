@@ -1,0 +1,26 @@
+{
+  "name": "@family-manager/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prisma:generate": "prisma generate --schema ../api/prisma/schema.prisma",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"Worker tests not implemented yet\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@family-manager/shared": "workspace:*",
+    "@prisma/client": "^6.1.0",
+    "bullmq": "^5.34.1",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "prisma": "^6.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
