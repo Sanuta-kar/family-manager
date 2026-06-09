@@ -50,6 +50,7 @@ export class DevicesService {
       throw new BadRequestException("Child user is not ready");
     }
 
+    const childUser = child.user;
     const result = await this.prisma.$transaction(async (tx) => {
       const device = await tx.device.create({
         data: {
@@ -68,7 +69,7 @@ export class DevicesService {
     });
 
     return this.authService.issueTokenPair({
-      userId: result.child.user.id,
+      userId: childUser.id,
       familyId: result.child.familyId,
       role: UserRole.Child,
       childProfileId: result.child.id,

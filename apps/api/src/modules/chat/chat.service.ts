@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import {
   AuthenticatedUser,
   ChatActionDraftStatus,
@@ -106,7 +107,7 @@ export class ChatService {
           actionDraftId,
           snoozeDecision: response.snoozeDecision,
           safetyFlags: response.safetyFlags
-        }
+        } as Prisma.InputJsonObject
       }
     });
 
@@ -117,7 +118,7 @@ export class ChatService {
         threadId,
         allowedActions,
         contextSummary: "Chat message processed through OpenClaw adapter",
-        response: response as unknown as Record<string, unknown>,
+        response: response as unknown as Prisma.InputJsonObject,
         decisionResult: actionDraftId ? "draft_created" : "message_only"
       }
     });
@@ -204,12 +205,14 @@ export class ChatService {
       take: 10,
       include: { template: true }
     });
-    return upcoming.map((occurrence) => ({
-      id: occurrence.id,
-      title: occurrence.template.title,
-      scheduledFor: occurrence.scheduledFor,
-      status: occurrence.status
-    }));
+    return {
+      upcoming: upcoming.map((occurrence) => ({
+        id: occurrence.id,
+        title: occurrence.template.title,
+        scheduledFor: occurrence.scheduledFor.toISOString(),
+        status: occurrence.status
+      }))
+    };
   }
 
   private async storeActionDraft(user: AuthenticatedUser, threadId: string, draft: OpenClawActionDraft) {
@@ -222,7 +225,7 @@ export class ChatService {
         userId: user.userId,
         type: draft.type,
         status,
-        payload: draft.payload,
+        payload: draft.payload as Prisma.InputJsonObject,
         validationErrors,
         expiresAt: new Date(Date.now() + 10 * 60_000)
       }

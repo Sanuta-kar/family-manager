@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import {
   AuthenticatedUser,
   MissionStatus,
@@ -34,9 +35,9 @@ export class MissionsService {
         scheduledTime: body.scheduledTime,
         recurrenceRule: body.recurrenceRule,
         isProtected: body.protected,
-        proofPolicy: body.proofPolicy,
-        snoozePolicy: body.snoozePolicy,
-        rewardPolicy: body.rewardPolicy
+        proofPolicy: body.proofPolicy as Prisma.InputJsonObject,
+        snoozePolicy: body.snoozePolicy as Prisma.InputJsonObject,
+        rewardPolicy: body.rewardPolicy as Prisma.InputJsonObject
       }
     });
 
@@ -58,9 +59,9 @@ export class MissionsService {
         scheduledTime: body.scheduledTime,
         recurrenceRule: body.recurrenceRule,
         isProtected: body.protected,
-        proofPolicy: body.proofPolicy,
-        snoozePolicy: body.snoozePolicy,
-        rewardPolicy: body.rewardPolicy
+        proofPolicy: body.proofPolicy as Prisma.InputJsonObject | undefined,
+        snoozePolicy: body.snoozePolicy as Prisma.InputJsonObject | undefined,
+        rewardPolicy: body.rewardPolicy as Prisma.InputJsonObject | undefined
       }
     });
   }
@@ -151,7 +152,7 @@ export class MissionsService {
       data: {
         occurrenceId: id,
         type: body.type,
-        payload: body.payload,
+        payload: body.payload as Prisma.InputJsonObject,
         confidence: body.confidence
       }
     });

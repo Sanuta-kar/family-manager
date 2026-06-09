@@ -15,7 +15,7 @@
     "@family-manager/shared": "workspace:*",
     "@prisma/client": "^6.1.0",
     "bullmq": "^5.34.1",
-    "ioredis": "^5.4.2"
+    "ioredis": "^5.10.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
