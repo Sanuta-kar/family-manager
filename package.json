@@ -9,7 +9,8 @@
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter @family-manager/api start:dev",
     "dev:worker": "pnpm --filter @family-manager/worker start:dev",
-    "dev:openclaw-adapter": "pnpm --filter @family-manager/openclaw-adapter start:dev"
+    "dev:openclaw-adapter": "pnpm --filter @family-manager/openclaw-adapter start:dev",
+    "dev:telegram-codex": "pnpm --filter @family-manager/telegram-codex start:dev"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -17,4 +18,3 @@
     "typescript": "^5.7.2"
   }
 }
-

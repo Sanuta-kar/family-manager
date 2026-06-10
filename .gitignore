@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+.telegram-codex-sessions.json
+telegram-codex.log
+telegram-codex.pid
 
 # Node / TypeScript
 node_modules/
@@ -37,4 +40,3 @@ proof-storage/
 .vscode/
 .DS_Store
 *.iml
-
