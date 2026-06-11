@@ -17,4 +17,4 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/apps/openclaw-adapter/dist apps/openclaw-adapter/dist
-CMD ["node", "apps/openclaw-adapter/dist/main.js"]
+CMD ["node", "apps/openclaw-adapter/dist/apps/openclaw-adapter/src/main.js"]

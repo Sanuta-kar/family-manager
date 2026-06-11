@@ -67,6 +67,8 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: family
       POSTGRES_PASSWORD: family
@@ -77,6 +79,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
 
@@ -87,4 +91,3 @@ volumes:
   redis-data:
   proof-storage:
   openclaw-data:
-

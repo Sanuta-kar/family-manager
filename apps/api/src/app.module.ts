@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
-import { PrismaService } from "./common/prisma.service";
+import { PrismaModule } from "./common/prisma.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { ChildrenModule } from "./modules/children/children.module";
 import { DevicesModule } from "./modules/devices/devices.module";
@@ -19,6 +19,7 @@ import { CoinsModule } from "./modules/coins/coins.module";
       secret: process.env.JWT_SECRET ?? "development-only-change-me",
       signOptions: { expiresIn: "15m" }
     }),
+    PrismaModule,
     AuthModule,
     ChildrenModule,
     DevicesModule,
@@ -27,9 +28,6 @@ import { CoinsModule } from "./modules/coins/coins.module";
     OpenClawModule,
     AlertsModule,
     CoinsModule
-  ],
-  providers: [PrismaService],
-  exports: [PrismaService]
+  ]
 })
 export class AppModule {}
-

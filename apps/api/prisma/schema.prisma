@@ -184,6 +184,7 @@ model MissionOccurrence {
 
   @@index([familyId, childProfileId, scheduledFor])
   @@index([familyId, status])
+  @@unique([templateId, scheduledFor])
 }
 
 model SnoozeEvent {
@@ -297,4 +298,3 @@ model AgentAuditLog {
 
   @@index([familyId, userId])
 }
-
