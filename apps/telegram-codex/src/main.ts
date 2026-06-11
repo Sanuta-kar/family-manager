@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadEnvFile } from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 
 type TelegramUpdate = {
   update_id: number;
@@ -35,6 +36,12 @@ type ActiveRun = {
   child: ChildProcess;
   promptPreview: string;
   resumeSessionId: string | null;
+};
+
+type WorktreeSummary = {
+  clean: boolean;
+  changedCount: number;
+  preview: string[];
 };
 
 type SessionStore = Record<string, string>;
@@ -84,6 +91,7 @@ const config = {
   sessionFile: process.env.TELEGRAM_CODEX_SESSION_FILE ?? join(repoRoot, ".telegram-codex-sessions.json"),
 };
 
+const execFileAsync = promisify(execFile);
 let activeRun: ActiveRun | null = null;
 let nextOffset = 0;
 let lockAcquired = false;
@@ -145,6 +153,8 @@ async function handleUpdate(update: TelegramUpdate) {
         "/status - show whether Codex is running",
         "/cancel - stop the current Codex run",
         "/new - start a new Codex session for this Telegram chat",
+        "",
+        "When a run ends, I will send the final answer plus run status automatically.",
       ].join("\n"),
     );
     return;
@@ -207,6 +217,7 @@ async function handleUpdate(update: TelegramUpdate) {
 
 async function runCodex(chatId: number, prompt: string) {
   const resumeSessionId = sessions[String(chatId)] ?? null;
+  const startedAt = new Date();
   const globalCodexArgs = [
     "--cd",
     config.codexWorkdir,
@@ -231,7 +242,7 @@ async function runCodex(chatId: number, prompt: string) {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  activeRun = { chatId, startedAt: new Date(), child, promptPreview: preview(prompt), resumeSessionId };
+  activeRun = { chatId, startedAt, child, promptPreview: preview(prompt), resumeSessionId };
   console.log(
     `Codex ${resumeSessionId ? "resumed" : "started"} for chat ${chatId}, pid=${child.pid ?? "unknown"}, session=${resumeSessionId ?? "new"}, prompt="${preview(prompt)}"`,
   );
@@ -288,6 +299,7 @@ async function runCodex(chatId: number, prompt: string) {
       console.log(`Stored Codex session for chat ${chatId}: ${threadId}`);
     }
 
+    const worktree = await readWorktreeSummary();
     const finalMessage = formatCodexResult({
       code,
       signal,
@@ -297,6 +309,8 @@ async function runCodex(chatId: number, prompt: string) {
       lastAgentMessage,
       threadId,
       resumed: Boolean(resumeSessionId),
+      durationMs: Date.now() - startedAt.getTime(),
+      worktree,
     });
 
     await sendLongMessage(chatId, finalMessage);
@@ -312,6 +326,8 @@ function formatCodexResult(input: {
   lastAgentMessage: string;
   threadId: string | null;
   resumed: boolean;
+  durationMs: number;
+  worktree: WorktreeSummary;
 }) {
   const status = input.timedOut
     ? "Codex timed out."
@@ -319,17 +335,54 @@ function formatCodexResult(input: {
       ? `Codex completed. Session: ${input.threadId ?? "unknown"}.`
       : `Codex exited with code ${input.code ?? "unknown"}${input.signal ? ` (${input.signal})` : ""}.`;
 
+  const statusBlock = formatFinalStatus({
+    code: input.code,
+    signal: input.signal,
+    timedOut: input.timedOut,
+    durationMs: input.durationMs,
+    threadId: input.threadId,
+    resumed: input.resumed,
+    worktree: input.worktree,
+  });
+
   const output = input.lastAgentMessage.trim();
   if (output) {
-    return `${status}\n\n${output}`;
+    return `${status}\n\n${output}\n\n${statusBlock}`;
   }
 
   const stderr = input.stderr.trim();
   if (stderr) {
-    return `${status}\n\nNo final stdout was returned. Recent stderr:\n${stderr}`;
+    return `${status}\n\nNo final stdout was returned. Recent stderr:\n${stderr}\n\n${statusBlock}`;
   }
 
-  return `${status}\n\nNo output was returned.`;
+  return `${status}\n\nNo output was returned.\n\n${statusBlock}`;
+}
+
+function formatFinalStatus(input: {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  durationMs: number;
+  threadId: string | null;
+  resumed: boolean;
+  worktree: WorktreeSummary;
+}) {
+  const exitState = input.timedOut
+    ? "timed out"
+    : input.code === 0
+      ? "completed"
+      : `failed: ${input.code ?? "unknown"}${input.signal ? ` (${input.signal})` : ""}`;
+  const worktree = input.worktree.clean
+    ? "clean"
+    : `${input.worktree.changedCount} changed file(s)${input.worktree.preview.length ? `\n${input.worktree.preview.join("\n")}` : ""}`;
+
+  return [
+    "Final status:",
+    `- State: ${exitState}`,
+    `- Duration: ${formatDuration(input.durationMs)}`,
+    `- Session: ${input.threadId ?? "unknown"}${input.resumed ? " (resumed)" : ""}`,
+    `- Worktree: ${worktree}`,
+  ].join("\n");
 }
 
 function formatActiveRun(run: ActiveRun) {
@@ -346,6 +399,35 @@ function formatActiveRun(run: ActiveRun) {
 function formatIdleStatus(chatId: number) {
   const sessionId = sessions[String(chatId)];
   return sessionId ? `Idle.\nCurrent session: ${sessionId}` : "Idle.\nCurrent session: none. The next prompt will start a new session.";
+}
+
+async function readWorktreeSummary(): Promise<WorktreeSummary> {
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--short"], {
+      cwd: config.codexWorkdir,
+      timeout: 5000,
+      maxBuffer: 64 * 1024,
+    });
+    const lines = stdout.trim().split("\n").map((line) => line.trimEnd()).filter(Boolean);
+    return {
+      clean: lines.length === 0,
+      changedCount: lines.length,
+      preview: lines.slice(0, 12),
+    };
+  } catch (error) {
+    return {
+      clean: false,
+      changedCount: 0,
+      preview: [`unavailable: ${(error as Error).message}`],
+    };
+  }
+}
+
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
 async function sendMessage(chatId: number, text: string) {

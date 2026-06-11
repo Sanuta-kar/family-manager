@@ -59,6 +59,10 @@ After the first message in a Telegram chat, the bridge stores that Codex session
 id in `.telegram-codex-sessions.json` and resumes it for later messages from the
 same chat. The session file is ignored by Git.
 
+When a Codex run finishes, the bridge sends the final answer plus a proactive
+status block with duration, session id, exit state, and current Git worktree
+summary.
+
 ## Android
 
 Open `apps/android` in Android Studio. The app is configured as a private APK-first native Android project.
