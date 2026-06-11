@@ -32,6 +32,13 @@ class ApiClient(
         }.body()
     }
 
+    suspend fun claimDevice(request: ClaimDeviceRequest): AuthResponse {
+        return client.post("$baseUrl/devices/claim") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+    }
+
     suspend fun today(childId: String): List<MissionOccurrenceDto> {
         return client.get("$baseUrl/children/$childId/missions/today") {
             tokenProvider()?.let { bearerAuth(it) }
@@ -44,6 +51,14 @@ class ApiClient(
             contentType(ContentType.Application.Json)
             setBody(ChatMessageRequest(text))
         }.body()
+    }
+
+    suspend fun registerFcmToken(fcmToken: String) {
+        client.post("$baseUrl/devices/fcm-token") {
+            tokenProvider()?.let { bearerAuth(it) }
+            contentType(ContentType.Application.Json)
+            setBody(FcmTokenRequest(fcmToken))
+        }
     }
 }
 
@@ -62,6 +77,14 @@ data class AuthResponse(
 )
 
 @Serializable
+data class ClaimDeviceRequest(
+    val code: String,
+    val deviceName: String,
+    val platform: String = "android",
+    val fcmToken: String? = null
+)
+
+@Serializable
 data class MissionOccurrenceDto(
     val id: String,
     val scheduledFor: String,
@@ -76,3 +99,5 @@ data class ChatSendResponse(
     val actionDraftId: String? = null
 )
 
+@Serializable
+data class FcmTokenRequest(val fcmToken: String)
