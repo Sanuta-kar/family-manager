@@ -23,6 +23,7 @@
     "@prisma/client": "^6.1.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.1",
+    "fastify": "4.28.1",
     "nanoid": "^5.0.9",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
