@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -25,9 +24,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.familymanager.app.data.ApiClient
+import com.familymanager.app.data.ClaimDeviceRequest
+import com.familymanager.app.data.SessionStore
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +47,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun FamilyMissionApp() {
+    val context = LocalContext.current
+    val sessionStore = remember { SessionStore(context) }
+    val apiClient = remember { ApiClient(tokenProvider = { sessionStore.accessToken() }) }
     var mode by remember { mutableStateOf(AppMode.Child) }
+    var hasChildSession by remember { mutableStateOf(sessionStore.accessToken() != null) }
     val messages = remember {
         mutableStateListOf(
             ChatLine("OpenClaw", "I am here in the family app. Ask me to talk or draft reminders.")
@@ -57,7 +68,13 @@ fun FamilyMissionApp() {
                 }
 
                 if (mode == AppMode.Child) {
-                    ChildTodayScreen(messages)
+                    ChildTodayScreen(
+                        messages = messages,
+                        hasChildSession = hasChildSession,
+                        apiClient = apiClient,
+                        sessionStore = sessionStore,
+                        onPaired = { hasChildSession = true }
+                    )
                 } else {
                     ParentDashboardScreen()
                 }
@@ -76,8 +93,23 @@ private fun ModeButton(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChildTodayScreen(messages: MutableList<ChatLine>) {
+private fun ChildTodayScreen(
+    messages: MutableList<ChatLine>,
+    hasChildSession: Boolean,
+    apiClient: ApiClient,
+    sessionStore: SessionStore,
+    onPaired: () -> Unit
+) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!hasChildSession) {
+            item {
+                PairDeviceCard(
+                    apiClient = apiClient,
+                    sessionStore = sessionStore,
+                    onPaired = onPaired
+                )
+            }
+        }
         item {
             MissionCard(
                 title = "Walk with dog",
@@ -94,6 +126,77 @@ private fun ChildTodayScreen(messages: MutableList<ChatLine>) {
         }
         item {
             ChatPanel(messages)
+        }
+    }
+}
+
+@Composable
+private fun PairDeviceCard(apiClient: ApiClient, sessionStore: SessionStore, onPaired: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf("") }
+    var deviceName by remember { mutableStateOf("Android phone") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var pairing by remember { mutableStateOf(false) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Pair Device", style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = code,
+                onValueChange = { code = it.uppercase() },
+                label = { Text("Pairing code") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = deviceName,
+                onValueChange = { deviceName = it },
+                label = { Text("Device name") },
+                singleLine = true
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    enabled = !pairing && code.isNotBlank() && deviceName.isNotBlank(),
+                    onClick = {
+                        pairing = true
+                        status = null
+                        scope.launch {
+                            try {
+                                val auth = apiClient.claimDevice(
+                                    ClaimDeviceRequest(
+                                        code = code.trim(),
+                                        deviceName = deviceName.trim()
+                                    )
+                                )
+                                sessionStore.saveTokens(auth.accessToken, auth.refreshToken)
+                                onPaired()
+                                status = "Paired"
+                                FirebaseMessaging.getInstance().token
+                                    .addOnSuccessListener { fcmToken ->
+                                        scope.launch {
+                                            try {
+                                                apiClient.registerFcmToken(fcmToken)
+                                            } catch (error: Exception) {
+                                                status = "Paired; push token pending"
+                                            }
+                                        }
+                                    }
+                                    .addOnFailureListener {
+                                        status = "Paired; push token pending"
+                                    }
+                            } catch (error: Exception) {
+                                status = "Pairing failed"
+                            } finally {
+                                pairing = false
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (pairing) "Pairing" else "Pair")
+                }
+                status?.let { Text(it) }
+            }
         }
     }
 }
@@ -177,4 +280,3 @@ private enum class AppMode {
 }
 
 private data class ChatLine(val sender: String, val text: String)
-
