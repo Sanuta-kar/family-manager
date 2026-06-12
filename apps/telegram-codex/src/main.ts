@@ -84,6 +84,7 @@ const config = {
   codexSandbox: process.env.CODEX_SANDBOX ?? "workspace-write",
   codexApprovalPolicy: process.env.CODEX_APPROVAL_POLICY ?? "never",
   codexExtraArgs: splitArgs(process.env.CODEX_EXTRA_ARGS ?? ""),
+  codexHome: process.env.CODEX_HOME,
   maxPromptChars: Number(process.env.TELEGRAM_CODEX_MAX_PROMPT_CHARS ?? 6000),
   runTimeoutMs: Number(process.env.TELEGRAM_CODEX_RUN_TIMEOUT_MS ?? 20 * 60 * 1000),
   pollTimeoutSeconds: Number(process.env.TELEGRAM_CODEX_POLL_TIMEOUT_SECONDS ?? 30),
@@ -238,7 +239,7 @@ async function runCodex(chatId: number, prompt: string) {
 
   const child = spawn(config.codexBin, args, {
     cwd: config.codexWorkdir,
-    env: process.env,
+    env: getCodexEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -297,6 +298,15 @@ async function runCodex(chatId: number, prompt: string) {
       sessions[String(chatId)] = threadId;
       saveSessions();
       console.log(`Stored Codex session for chat ${chatId}: ${threadId}`);
+    }
+
+    if (code !== 0 && resumeSessionId && isStaleCodexSessionError(stderr)) {
+      delete sessions[String(chatId)];
+      saveSessions();
+      console.warn(`Deleted stale Codex session for chat ${chatId}: ${resumeSessionId}`);
+      await sendMessage(chatId, "Stored Codex session expired. Starting a new session.");
+      await runCodex(chatId, prompt);
+      return;
     }
 
     const worktree = await readWorktreeSummary();
@@ -498,6 +508,18 @@ function readRequiredEnv(name: string) {
   return value;
 }
 
+function getCodexEnv() {
+  if (!config.codexHome) {
+    return process.env;
+  }
+
+  mkdirSync(config.codexHome, { recursive: true });
+  return {
+    ...process.env,
+    CODEX_HOME: config.codexHome,
+  };
+}
+
 function findEnvFile(startDir: string) {
   let currentDir = startDir;
 
@@ -580,6 +602,10 @@ function getCompletedAgentMessage(event: CodexJsonEvent) {
   const type = "type" in item ? item.type : null;
   const text = "text" in item ? item.text : null;
   return type === "agent_message" && typeof text === "string" ? text : null;
+}
+
+function isStaleCodexSessionError(stderr: string) {
+  return stderr.includes("no rollout found for thread id") || stderr.includes("thread/resume failed");
 }
 
 function tail(value: string, maxLength: number) {
