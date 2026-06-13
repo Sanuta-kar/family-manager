@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "@family-manager/shared";
 import { PrismaService } from "../../common/prisma.service";
 import { assertChildCanAccess } from "../../common/rbac";
@@ -31,21 +32,27 @@ export class CoinsService {
       return;
     }
 
-    await this.prisma.$transaction([
-      this.prisma.coinLedger.create({
-        data: {
-          familyId: input.familyId,
-          childProfileId: input.childProfileId,
-          occurrenceId: input.occurrenceId,
-          amount: input.amount,
-          reason: input.reason
-        }
-      }),
-      this.prisma.childProfile.update({
-        where: { id: input.childProfileId },
-        data: { coinBalance: { increment: input.amount } }
-      })
-    ]);
+    try {
+      await this.prisma.$transaction([
+        this.prisma.coinLedger.create({
+          data: {
+            familyId: input.familyId,
+            childProfileId: input.childProfileId,
+            occurrenceId: input.occurrenceId,
+            amount: input.amount,
+            reason: input.reason
+          }
+        }),
+        this.prisma.childProfile.update({
+          where: { id: input.childProfileId },
+          data: { coinBalance: { increment: input.amount } }
+        })
+      ]);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return;
+      }
+      throw error;
+    }
   }
 }
-

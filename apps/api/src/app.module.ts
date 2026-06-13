@@ -13,7 +13,7 @@ import { CoinsModule } from "./modules/coins/coins.module";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ["../../.env", ".env"] }),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET ?? "development-only-change-me",

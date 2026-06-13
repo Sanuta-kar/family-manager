@@ -44,17 +44,13 @@ async function notifyOccurrence(occurrenceId: string) {
     return;
   }
 
+  const deadlineAt = new Date(Date.now() + 15 * 60_000);
   await prisma.missionOccurrence.update({
     where: { id: occurrenceId },
-    data: { status: "notified", currentDeadlineAt: new Date(Date.now() + 15 * 60_000) }
+    data: { status: "notified", currentDeadlineAt: deadlineAt }
   });
-  const deadlineAt = new Date(Date.now() + 15 * 60_000);
 
-  await missionQueue.add(
-    "mark-missed",
-    { occurrenceId },
-    { delay: 15 * 60_000, removeOnComplete: true, attempts: 3 }
-  );
+  await enqueueMarkMissed(occurrenceId, deadlineAt);
 
   await sendMissionReminderToChildDevices(prisma, pushClient, {
     occurrenceId: occurrence.id,
@@ -70,7 +66,12 @@ async function markMissed(occurrenceId: string) {
     where: { id: occurrenceId },
     include: { template: true }
   });
-  if (!occurrence || ["completed", "failed", "cancelled"].includes(occurrence.status)) {
+  if (!occurrence || ["completed", "failed", "cancelled", "parent_review"].includes(occurrence.status)) {
+    return;
+  }
+
+  if (occurrence.currentDeadlineAt && occurrence.currentDeadlineAt.getTime() > Date.now()) {
+    await enqueueMarkMissed(occurrenceId, occurrence.currentDeadlineAt);
     return;
   }
 
@@ -89,6 +90,19 @@ async function markMissed(occurrenceId: string) {
       }
     })
   ]);
+}
+
+async function enqueueMarkMissed(occurrenceId: string, deadlineAt: Date) {
+  await missionQueue.add(
+    "mark-missed",
+    { occurrenceId },
+    {
+      delay: Math.max(0, deadlineAt.getTime() - Date.now()),
+      jobId: `mark-missed-${occurrenceId}-${deadlineAt.getTime()}`,
+      removeOnComplete: true,
+      attempts: 3
+    }
+  );
 }
 
 async function bootstrap() {

@@ -1,5 +1,10 @@
 import { PrismaClient } from "@prisma/client";
 import { Queue } from "bullmq";
+import {
+  normalizeRecurrenceRule,
+  occurrenceDatesForSchedule,
+  parseScheduledTime
+} from "@family-manager/shared";
 
 type MissionQueue = Pick<Queue, "add">;
 
@@ -9,6 +14,7 @@ type MissionTemplateForScheduling = {
   childProfileId: string;
   scheduledTime: string;
   recurrenceRule: string | null;
+  timezone?: string | null;
 };
 
 type MissionOccurrenceForNotification = {
@@ -16,41 +22,25 @@ type MissionOccurrenceForNotification = {
   scheduledFor: Date;
 };
 
-const minuteMs = 60_000;
-const dayMs = 24 * 60 * minuteMs;
+const dayMs = 24 * 60 * 60 * 1000;
 
-export function parseScheduledTime(scheduledTime: string) {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(scheduledTime);
-  if (!match) {
-    throw new Error(`Invalid scheduled time: ${scheduledTime}`);
-  }
-  return { hours: Number(match[1]), minutes: Number(match[2]) };
-}
+export { parseScheduledTime };
 
 export function occurrenceDatesForTemplate(template: MissionTemplateForScheduling, now = new Date(), horizonDays = 7) {
-  const { hours, minutes } = parseScheduledTime(template.scheduledTime);
-  const first = new Date(now);
-  first.setHours(hours, minutes, 0, 0);
-
-  const recurrenceRule = template.recurrenceRule?.trim().toLowerCase();
-  if (!recurrenceRule) {
-    return first.getTime() >= now.getTime() ? [first] : [];
-  }
-
-  if (recurrenceRule !== "daily") {
+  let recurrenceRule: string | undefined;
+  try {
+    recurrenceRule = normalizeRecurrenceRule(template.recurrenceRule);
+  } catch {
     throw new Error(`Unsupported recurrence rule for template ${template.id}: ${template.recurrenceRule}`);
   }
 
-  if (first.getTime() < now.getTime()) {
-    first.setDate(first.getDate() + 1);
-  }
-
-  const end = new Date(now.getTime() + horizonDays * dayMs);
-  const dates: Date[] = [];
-  for (const scheduledFor = new Date(first); scheduledFor <= end; scheduledFor.setDate(scheduledFor.getDate() + 1)) {
-    dates.push(new Date(scheduledFor));
-  }
-  return dates;
+  return occurrenceDatesForSchedule(
+    template.scheduledTime,
+    recurrenceRule,
+    template.timezone ?? "UTC",
+    now,
+    horizonDays
+  );
 }
 
 export async function expandOccurrences(
@@ -66,12 +56,17 @@ export async function expandOccurrences(
       familyId: true,
       childProfileId: true,
       scheduledTime: true,
-      recurrenceRule: true
+      recurrenceRule: true,
+      childProfile: { select: { timezone: true } }
     }
   });
 
   for (const template of templates) {
-    const scheduledDates = occurrenceDatesForTemplate(template, now, horizonDays);
+    const scheduledDates = occurrenceDatesForTemplate(
+      { ...template, timezone: template.childProfile.timezone },
+      now,
+      horizonDays
+    );
     if (scheduledDates.length === 0) {
       continue;
     }

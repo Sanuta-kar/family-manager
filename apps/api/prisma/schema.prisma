@@ -230,7 +230,7 @@ model CoinLedger {
   id                  String   @id @default(cuid())
   familyId            String
   childProfileId      String
-  occurrenceId        String?
+  occurrenceId        String?  @unique
   occurrence          MissionOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
   amount              Int
   reason              String

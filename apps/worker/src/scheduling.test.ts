@@ -38,6 +38,32 @@ describe("occurrenceDatesForTemplate", () => {
     ]);
   });
 
+  it("accepts RRULE-style daily recurrence from chat drafts", () => {
+    const dates = occurrenceDatesForTemplate(
+      { ...template, recurrenceRule: "FREQ=DAILY" },
+      new Date("2026-06-11T09:00:00.000Z"),
+      2
+    );
+
+    expect(dates.map((date) => date.toISOString())).toEqual([
+      "2026-06-11T10:30:00.000Z",
+      "2026-06-12T10:30:00.000Z"
+    ]);
+  });
+
+  it("schedules against the child timezone", () => {
+    const dates = occurrenceDatesForTemplate(
+      { ...template, timezone: "Asia/Jerusalem" },
+      new Date("2026-06-11T06:00:00.000Z"),
+      2
+    );
+
+    expect(dates.map((date) => date.toISOString())).toEqual([
+      "2026-06-11T07:30:00.000Z",
+      "2026-06-12T07:30:00.000Z"
+    ]);
+  });
+
   it("does not create stale one-shot occurrences", () => {
     const dates = occurrenceDatesForTemplate(
       { ...template, recurrenceRule: null },

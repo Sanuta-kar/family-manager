@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { AlertStatus, AuthenticatedUser } from "@family-manager/shared";
 import { PrismaService } from "../../common/prisma.service";
 import { assertParent } from "../../common/rbac";
@@ -18,8 +18,19 @@ export class AlertsService {
 
   async update(user: AuthenticatedUser, id: string, status: string) {
     assertParent(user);
+    if (!Object.values(AlertStatus).includes(status as AlertStatus)) {
+      throw new BadRequestException("Invalid alert status");
+    }
+    const alert = await this.prisma.alert.findFirst({
+      where: { id, familyId: user.familyId },
+      select: { id: true }
+    });
+    if (!alert) {
+      throw new NotFoundException("Alert not found");
+    }
+
     return this.prisma.alert.update({
-      where: { id },
+      where: { id: alert.id },
       data: {
         status: status as AlertStatus,
         resolvedAt: status === AlertStatus.Resolved ? new Date() : undefined
@@ -45,4 +56,3 @@ export class AlertsService {
     });
   }
 }
-

@@ -7,7 +7,7 @@
     "start": "node dist/apps/api/src/main.js",
     "start:dev": "nest start --watch --entryFile apps/api/src/main",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"

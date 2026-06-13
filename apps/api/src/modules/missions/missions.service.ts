@@ -8,7 +8,8 @@ import {
   ProofRuleType,
   RewardPolicy,
   SnoozePolicy,
-  UserRole
+  UserRole,
+  nextScheduledDateForTimezone
 } from "@family-manager/shared";
 import { PrismaService } from "../../common/prisma.service";
 import { assertChildCanAccess, assertParent } from "../../common/rbac";
@@ -25,11 +26,18 @@ export class MissionsService {
 
   async createTemplate(user: AuthenticatedUser, body: MissionTemplatePayload) {
     this.assertCanWriteTemplate(user, body.childProfileId, body.protected);
+    const child = await this.prisma.childProfile.findFirst({
+      where: { id: body.childProfileId, familyId: user.familyId },
+      select: { id: true, timezone: true }
+    });
+    if (!child) {
+      throw new NotFoundException("Child profile not found");
+    }
 
     const template = await this.prisma.missionTemplate.create({
       data: {
         familyId: user.familyId,
-        childProfileId: body.childProfileId,
+        childProfileId: child.id,
         ownerUserId: user.userId,
         title: body.title,
         scheduledTime: body.scheduledTime,
@@ -41,7 +49,7 @@ export class MissionsService {
       }
     });
 
-    const occurrence = await this.createNextOccurrence(template.id, user.familyId, body.childProfileId, body.scheduledTime);
+    const occurrence = await this.createNextOccurrence(template.id, user.familyId, child.id, body.scheduledTime, child.timezone);
     return { template, occurrence };
   }
 
@@ -92,6 +100,10 @@ export class MissionsService {
 
   async snooze(user: AuthenticatedUser, id: string, body: { requestedMinutes: number; source?: string }) {
     const occurrence = await this.findOccurrenceForUser(user, id);
+    if (![MissionStatus.Notified, MissionStatus.Snoozed].includes(occurrence.status as MissionStatus)) {
+      throw new BadRequestException("Mission can be snoozed only after it has notified");
+    }
+
     const policy = occurrence.template.snoozePolicy as SnoozePolicy;
     if (!policy.allowed) {
       return this.recordDeniedSnooze(id, body.requestedMinutes, "Snooze is disabled for this mission");
@@ -114,6 +126,13 @@ export class MissionsService {
     }
 
     const deadline = new Date(Date.now() + body.requestedMinutes * 60_000);
+    if (policy.hardDeadlineMinutes) {
+      const hardDeadline = new Date(occurrence.scheduledFor.getTime() + policy.hardDeadlineMinutes * 60_000);
+      if (deadline.getTime() > hardDeadline.getTime()) {
+        return this.recordDeniedSnooze(id, body.requestedMinutes, "Requested snooze exceeds the hard deadline");
+      }
+    }
+
     await this.prisma.$transaction([
       this.prisma.snoozeEvent.create({
         data: {
@@ -147,6 +166,7 @@ export class MissionsService {
     if ([MissionStatus.Completed, MissionStatus.Failed, MissionStatus.Cancelled].includes(occurrence.status as MissionStatus)) {
       throw new BadRequestException("Mission is already closed");
     }
+    this.validateProofSubmission(occurrence, body);
 
     await this.prisma.proofSubmission.create({
       data: {
@@ -221,8 +241,19 @@ export class MissionsService {
     }
   }
 
-  private async createNextOccurrence(templateId: string, familyId: string, childProfileId: string, scheduledTime: string) {
-    const scheduledFor = this.nextScheduledDate(scheduledTime);
+  private async createNextOccurrence(
+    templateId: string,
+    familyId: string,
+    childProfileId: string,
+    scheduledTime: string,
+    timezone: string
+  ) {
+    let scheduledFor: Date;
+    try {
+      scheduledFor = nextScheduledDateForTimezone(scheduledTime, timezone);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : "Invalid mission schedule");
+    }
     return this.prisma.missionOccurrence.create({
       data: {
         familyId,
@@ -232,16 +263,6 @@ export class MissionsService {
         status: MissionStatus.Scheduled
       }
     });
-  }
-
-  private nextScheduledDate(time: string) {
-    const [hours, minutes] = time.split(":").map(Number);
-    const date = new Date();
-    date.setHours(hours, minutes, 0, 0);
-    if (date.getTime() < Date.now()) {
-      date.setDate(date.getDate() + 1);
-    }
-    return date;
   }
 
   private async findOccurrenceForUser(user: AuthenticatedUser, id: string) {
@@ -306,10 +327,6 @@ export class MissionsService {
   }
 
   private async awardCoinsOnce(occurrenceId: string) {
-    const existingAward = await this.prisma.coinLedger.findFirst({ where: { occurrenceId } });
-    if (existingAward) {
-      return;
-    }
     const occurrence = await this.prisma.missionOccurrence.findUniqueOrThrow({
       where: { id: occurrenceId },
       include: { template: true }
@@ -323,5 +340,95 @@ export class MissionsService {
       reason: `Completed mission: ${occurrence.template.title}`
     });
   }
-}
 
+  private validateProofSubmission(
+    occurrence: { template: { proofPolicy: unknown } },
+    body: { type: string; payload: Record<string, unknown>; confidence?: number }
+  ) {
+    const policy = occurrence.template.proofPolicy as ProofPolicy;
+    const rule = policy.rules.find((candidate) => candidate.type === body.type);
+    if (!rule) {
+      throw new BadRequestException("Proof type is not accepted for this mission");
+    }
+
+    if (body.type === ProofRuleType.ParentReview) {
+      throw new BadRequestException("Parent review proof can be completed only through parent review");
+    }
+
+    if (body.type === ProofRuleType.TapDone) {
+      const tappedAt = this.readString(body.payload, "tappedAt");
+      if (!tappedAt || Number.isNaN(Date.parse(tappedAt))) {
+        throw new BadRequestException("Tap-done proof must include a valid tappedAt timestamp");
+      }
+      return;
+    }
+
+    if (body.type === ProofRuleType.Photo) {
+      const storageKey = this.readString(body.payload, "storageKey");
+      if (!storageKey) {
+        throw new BadRequestException("Photo proof must reference a stored upload");
+      }
+      const sizeBytes = this.readNumber(body.payload, "sizeBytes");
+      if (sizeBytes !== undefined && sizeBytes <= 0) {
+        throw new BadRequestException("Photo proof size must be positive");
+      }
+      return;
+    }
+
+    if (body.type === ProofRuleType.GeofenceExit) {
+      const latitude = this.readNumber(body.payload, "latitude") ?? this.readNumber(body.payload, "lat");
+      const longitude =
+        this.readNumber(body.payload, "longitude") ??
+        this.readNumber(body.payload, "lng") ??
+        this.readNumber(body.payload, "lon");
+      if (latitude === undefined || longitude === undefined) {
+        throw new BadRequestException("Geofence proof must include latitude and longitude");
+      }
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        throw new BadRequestException("Geofence proof coordinates are out of range");
+      }
+
+      const config = rule.config ?? {};
+      const targetLatitude = this.readNumber(config, "latitude") ?? this.readNumber(config, "lat");
+      const targetLongitude =
+        this.readNumber(config, "longitude") ??
+        this.readNumber(config, "lng") ??
+        this.readNumber(config, "lon");
+      const radiusMeters = this.readNumber(config, "radiusMeters") ?? this.readNumber(config, "radius");
+      if (targetLatitude !== undefined && targetLongitude !== undefined && radiusMeters !== undefined) {
+        const accuracyMeters = Math.max(0, this.readNumber(body.payload, "accuracyMeters") ?? 0);
+        const distance = this.distanceMeters(latitude, longitude, targetLatitude, targetLongitude);
+        if (distance > radiusMeters + accuracyMeters) {
+          throw new BadRequestException("Geofence proof is outside the allowed area");
+        }
+      }
+      return;
+    }
+
+    throw new BadRequestException("Unsupported proof type");
+  }
+
+  private readString(payload: Record<string, unknown>, key: string) {
+    const value = payload[key];
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
+  private readNumber(payload: Record<string, unknown>, key: string) {
+    const value = payload[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+
+  private distanceMeters(latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number) {
+    const earthRadiusMeters = 6_371_000;
+    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+    const deltaLatitude = toRadians(latitudeB - latitudeA);
+    const deltaLongitude = toRadians(longitudeB - longitudeA);
+    const a =
+      Math.sin(deltaLatitude / 2) * Math.sin(deltaLatitude / 2) +
+      Math.cos(toRadians(latitudeA)) *
+        Math.cos(toRadians(latitudeB)) *
+        Math.sin(deltaLongitude / 2) *
+        Math.sin(deltaLongitude / 2);
+    return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+}

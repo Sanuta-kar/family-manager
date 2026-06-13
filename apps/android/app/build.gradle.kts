@@ -9,6 +9,10 @@ plugins {
 android {
     namespace = "com.familymanager.app"
     compileSdk = 35
+    val debugApiBaseUrl = providers.gradleProperty("FAMILY_MANAGER_DEBUG_API_BASE_URL")
+        .orElse("http://10.0.2.2:4000/api")
+    val releaseApiBaseUrl = providers.gradleProperty("FAMILY_MANAGER_RELEASE_API_BASE_URL")
+        .orElse("https://family.example.com/api")
 
     defaultConfig {
         applicationId = "com.familymanager.app"
@@ -16,7 +20,18 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "API_BASE_URL", "\"https://family.example.com/api\"")
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField("String", "API_BASE_URL", "\"${debugApiBaseUrl.get()}\"")
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
+        release {
+            buildConfigField("String", "API_BASE_URL", "\"${releaseApiBaseUrl.get()}\"")
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
+        }
     }
 
     buildFeatures {
