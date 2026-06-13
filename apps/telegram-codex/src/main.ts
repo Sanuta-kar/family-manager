@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadEnvFile } from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
@@ -217,8 +217,16 @@ async function handleUpdate(update: TelegramUpdate) {
 }
 
 async function runCodex(chatId: number, prompt: string) {
-  const resumeSessionId = sessions[String(chatId)] ?? null;
+  const storedSessionId = sessions[String(chatId)] ?? null;
+  const resumeSessionId = storedSessionId && hasCodexSession(storedSessionId) ? storedSessionId : null;
+  if (storedSessionId && !resumeSessionId) {
+    delete sessions[String(chatId)];
+    saveSessions();
+    console.warn(`Deleted missing Codex session for chat ${chatId}: ${storedSessionId}`);
+  }
+
   const startedAt = new Date();
+  const outputFile = join("/tmp", `family-manager-telegram-codex-${process.pid}-${startedAt.getTime()}.txt`);
   const globalCodexArgs = [
     "--cd",
     config.codexWorkdir,
@@ -227,13 +235,13 @@ async function runCodex(chatId: number, prompt: string) {
     "--ask-for-approval",
     config.codexApprovalPolicy,
   ];
+  const execCodexArgs = ["--json", "--output-last-message", outputFile, ...config.codexExtraArgs];
   const args = resumeSessionId
-    ? [...globalCodexArgs, "exec", "resume", "--json", ...config.codexExtraArgs, resumeSessionId, prompt]
+    ? [...globalCodexArgs, "exec", "resume", ...execCodexArgs, resumeSessionId, prompt]
     : [
         ...globalCodexArgs,
         "exec",
-        "--json",
-        ...config.codexExtraArgs,
+        ...execCodexArgs,
         prompt,
       ];
 
@@ -274,6 +282,11 @@ async function runCodex(chatId: number, prompt: string) {
       if (agentMessage) {
         lastAgentMessage = agentMessage;
       }
+
+      const completedMessage = getTaskCompleteAgentMessage(event);
+      if (completedMessage) {
+        lastAgentMessage = completedMessage;
+      }
     }
   });
 
@@ -308,6 +321,12 @@ async function runCodex(chatId: number, prompt: string) {
       await runCodex(chatId, prompt);
       return;
     }
+
+    const outputFileMessage = readOutputFile(outputFile);
+    if (outputFileMessage) {
+      lastAgentMessage = outputFileMessage;
+    }
+    removeOutputFile(outputFile);
 
     const worktree = await readWorktreeSummary();
     const finalMessage = formatCodexResult({
@@ -604,8 +623,28 @@ function getCompletedAgentMessage(event: CodexJsonEvent) {
   return type === "agent_message" && typeof text === "string" ? text : null;
 }
 
+function getTaskCompleteAgentMessage(event: CodexJsonEvent) {
+  if (event.type !== "event_msg" || !("payload" in event)) {
+    return null;
+  }
+
+  const payload = event.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const type = "type" in payload ? payload.type : null;
+  const lastAgentMessage = "last_agent_message" in payload ? payload.last_agent_message : null;
+  return type === "task_complete" && typeof lastAgentMessage === "string" ? lastAgentMessage : null;
+}
+
 function isStaleCodexSessionError(stderr: string) {
-  return stderr.includes("no rollout found for thread id") || stderr.includes("thread/resume failed");
+  return (
+    stderr.includes("no rollout found for thread id") ||
+    stderr.includes("thread/resume failed") ||
+    stderr.includes("No session found") ||
+    stderr.includes("could not find session")
+  );
 }
 
 function tail(value: string, maxLength: number) {
@@ -614,6 +653,74 @@ function tail(value: string, maxLength: number) {
 
 function preview(value: string) {
   return value.length <= 120 ? value : `${value.slice(0, 117)}...`;
+}
+
+function hasCodexSession(sessionId: string) {
+  if (!config.codexHome) {
+    return true;
+  }
+
+  const sessionsDir = join(config.codexHome, "sessions");
+  if (!existsSync(sessionsDir)) {
+    return false;
+  }
+
+  return findFileContaining(sessionsDir, sessionId);
+}
+
+function findFileContaining(dir: string, value: string): boolean {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (findFileContaining(path, value)) {
+        return true;
+      }
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    try {
+      if (entry.name.includes(value) || readFileSync(path, "utf8").includes(value)) {
+        return true;
+      }
+    } catch {
+      // Ignore files that cannot be read as text.
+    }
+  }
+
+  return false;
+}
+
+function readOutputFile(path: string) {
+  try {
+    if (!existsSync(path) || statSync(path).size === 0) {
+      return "";
+    }
+
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function removeOutputFile(path: string) {
+  try {
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+  } catch {
+    // Ignore cleanup errors for temporary Codex output files.
+  }
 }
 
 function acquireLock() {
