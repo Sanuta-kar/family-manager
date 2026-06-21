@@ -14,7 +14,7 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 ## Phase 1 — Real today screen
 
 - Replace hardcoded cards with `apiClient.today(childId)`; render real `MissionOccurrenceDto`s with loading/empty/error states.
-- **Backend dependency:** the child token encodes `childProfileId`, but `POST /devices/claim` does **not** return it in the body, so the app needs another way to get it. Verify, then either add `childProfileId` to the claim response or add a small `GET /me`. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
+- **Backend dependency — resolved.** `POST /devices/claim` now returns `childProfileId` and `childDisplayName` in the response body (alongside the token pair), so the app can call `today(childId)` immediately after pairing without decoding the JWT. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
 
 ## Phase 2 — Mission actions
 
@@ -62,7 +62,7 @@ Postgres was already running (`family-manager-postgres-1` on host `5433`); migra
   - `POST /devices/claim` (no auth, with code) → `201`, returns `{accessToken, refreshToken, user}`.
   - `GET /children/:childId/missions/today` (child token) → `200`, `0` occurrences (none scheduled yet).
 
-**Confirmed gap (drives Phase 1):** the `claim` response body does **not** include `childProfileId` — it is only inside the child JWT. An Android client cannot call `today(childId)` after pairing without decoding the JWT or a new endpoint. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md). This is now empirically verified, not just inferred.
+**Confirmed gap (drove Phase 1) — now resolved:** the `claim` response body originally did **not** include `childProfileId` (it was only inside the child JWT), so an Android client could not call `today(childId)` after pairing without decoding the JWT. The claim response now returns `childProfileId` and `childDisplayName` directly. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
 
 ### Android — blocked from a headless run (human step required)
 

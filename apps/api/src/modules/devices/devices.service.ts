@@ -68,13 +68,19 @@ export class DevicesService {
       return { child, device };
     });
 
-    return this.authService.issueTokenPair({
+    const tokenPair = this.authService.issueTokenPair({
       userId: childUser.id,
       familyId: result.child.familyId,
       role: UserRole.Child,
       childProfileId: result.child.id,
       deviceId: result.device.id
     });
+
+    return {
+      ...tokenPair,
+      childProfileId: result.child.id,
+      childDisplayName: result.child.name
+    };
   }
 
   async registerFcmToken(user: AuthenticatedUser, fcmToken: string) {

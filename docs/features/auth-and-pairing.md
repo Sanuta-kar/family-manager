@@ -16,7 +16,7 @@ A `child_profile` has an associated child `user`. A pairing code is bound to a `
 - `POST /auth/login` — parent email/password login; returns an access + refresh token pair.
 - `POST /auth/refresh` — exchange a refresh token for a new pair.
 - `POST /devices/pairing-codes` — parent-only; returns `{ code, childProfileId, expiresAtMinutes }`.
-- `POST /devices/claim` — child device submits `{ code, deviceName, platform, fcmToken? }`; creates the device, marks the code used, and returns a child token pair.
+- `POST /devices/claim` — child device submits `{ code, deviceName, platform, fcmToken? }`; creates the device, marks the code used, and returns a child token pair plus `childProfileId` and `childDisplayName`.
 - `POST /devices/fcm-token` — paired child device registers/updates its FCM token.
 
 Source: `apps/api/src/modules/devices/devices.service.ts`, `apps/api/src/modules/devices/devices.controller.ts`, and the `auth` module.
@@ -32,6 +32,5 @@ Real and working.
 
 ## Gaps
 
-- **`claim` returns only the token pair.** `childProfileId` is encoded inside the child JWT but is **not** returned in the response body. The Android client therefore cannot directly call `GET /children/:childId/missions/today` after pairing without decoding the JWT. Candidate fixes: add `childProfileId` (and child display name) to the claim response, or add a small `GET /me` endpoint. This is a dependency of the Android bring-up plan, Phase 1 — see [../plans/android-bring-up.md](../plans/android-bring-up.md).
 - No DTO validation library on request bodies yet.
 - No automated API tests yet.
