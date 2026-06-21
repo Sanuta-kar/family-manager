@@ -64,19 +64,21 @@ Postgres was already running (`family-manager-postgres-1` on host `5433`); migra
 
 **Confirmed gap (drove Phase 1) — now resolved:** the `claim` response body originally did **not** include `childProfileId` (it was only inside the child JWT), so an Android client could not call `today(childId)` after pairing without decoding the JWT. The claim response now returns `childProfileId` and `childDisplayName` directly. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
 
-### Android — blocked from a headless run (human step required)
+### Android — verified on emulator (2026-06-21)
 
-- Android Studio is installed (`/Applications/Android Studio.app`) and an Android SDK exists at `~/Library/Android/sdk` (build-tools, platform-tools, platforms, emulator).
-- **Blockers:** there is no JDK or `gradle` on the shell `PATH` (only Android Studio's bundled JBR at `…/Contents/jbr/Contents/Home`, not exported), and `apps/android` has **no Gradle wrapper**, so `./gradlew` cannot be bootstrapped from the CLI without first installing/locating a Gradle distribution.
-- The emulator pairing test is also an interactive GUI tap-flow, which cannot be driven autonomously here.
+The app now builds, installs, and pairs end-to-end against the local API on an emulator (Android Studio, "Medium Phone" AVD). Getting there required four fixes, all committed:
 
-**To finish Phase 0 (human, in Android Studio):**
-1. Open `apps/android` in Android Studio; let it sync (this generates the Gradle wrapper using its bundled Gradle/JDK).
-2. Start an emulator; Run the app (debug build targets `http://10.0.2.2:4000/api`).
-3. With the backend running, generate a pairing code (the curl flow above works) and enter it in the app; confirm it pairs and tokens persist, with no crash when Firebase/`google-services.json` is absent.
-4. Trigger `AlarmActivity` via an `adb` intent to confirm the strong-reminder UI (see [../testing.md](../testing.md)).
-5. Update this section with the on-device results.
+1. **Gradle wrapper** — `apps/android` had none. Generated on first Android Studio sync and committed (`gradlew`, `gradlew.bat`, `gradle/wrapper/`), so the CLI build is now bootstrappable.
+2. **`gradle.properties`** was missing entirely → builds failed with "AndroidX dependencies but `android.useAndroidX` not enabled". Added with `android.useAndroidX=true` (plus standard JVM/Kotlin defaults).
+3. **JVM-target mismatch** (Java 1.8 vs Kotlin 21) → pinned both to JVM 17 (`compileOptions` + `kotlinOptions.jvmTarget`) in `app/build.gradle.kts`.
+4. **Google Services plugin** made `google-services.json` a hard build requirement, contradicting the "FCM optional locally" design. The plugin is now applied only when the file exists; the runtime FCM call in `MainActivity` is wrapped so a missing Firebase config can't flip a successful pairing into a failure.
+
+**Pairing bug found and fixed (client serialization):** the first on-device pairing attempts failed with `Pairing failed`. Root cause: kotlinx serialization defaults `encodeDefaults = false`, so the ktor client dropped `ClaimDeviceRequest.platform` (default `"android"`) from the request body; the API requires `platform` (`Device.platform` is a non-null column), so the insert 500'd and the transaction rolled back. The error surfaced in-app as a `JsonConvertException` because ktor's default `expectSuccess = false` tried to parse the 500 error body as an `AuthResponse`. Fixed by setting `encodeDefaults = true` on the client `Json`. After the fix, pairing succeeds and a `Device` row is created.
+
+**Server-side follow-up (not blocking):** the API returned a raw `500` for the missing required field instead of a clean `400`. This is the known "no DTO validation yet" gap — see [roadmap.md](roadmap.md) (API hardening) and [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
+
+Not yet exercised on-device: `AlarmActivity` strong-reminder UI (note: it is `android:exported="false"`, so a plain `adb am start` is rejected — trigger it via its normal alarm path or temporarily mark it exported in a debug build).
 
 ### Net "where it stands"
 
-Backend pairing/auth/missions path is genuinely working locally. The Android app's pairing flow is wired against this API, but compiling and running it requires the Android Studio GUI on this machine. No on-device verification was possible headlessly.
+Backend pairing/auth/missions path works locally, and the Android app now builds and pairs against it on an emulator. Phase 0 is complete. Phase 1 (real today screen) is unblocked: the claim response already returns `childProfileId`/`childDisplayName`, and the client serialization fix means API requests carry their full bodies.

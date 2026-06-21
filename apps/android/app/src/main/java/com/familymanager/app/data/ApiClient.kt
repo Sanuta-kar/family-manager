@@ -21,7 +21,11 @@ class ApiClient(
 ) {
     private val client = HttpClient(Android) {
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            // encodeDefaults so default-valued request fields (e.g.
+            // ClaimDeviceRequest.platform = "android") are actually sent;
+            // the API requires them. ignoreUnknownKeys so extra response
+            // fields (e.g. childProfileId) don't break deserialization.
+            json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
         }
     }
 

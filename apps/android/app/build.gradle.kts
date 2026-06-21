@@ -3,7 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
-    id("com.google.gms.google-services")
+}
+
+// FCM is optional for local development. The Google Services plugin makes
+// google-services.json a hard build requirement, so only apply it when the
+// file is actually present (e.g. a real Firebase-backed build). Without it the
+// app still builds and runs; FCM token registration just fails gracefully at
+// runtime. See docs/plans/android-bring-up.md (Phase 0).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -32,6 +40,15 @@ android {
             buildConfigField("String", "API_BASE_URL", "\"${releaseApiBaseUrl.get()}\"")
             manifestPlaceholders["usesCleartextTraffic"] = "false"
         }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
     }
 
     buildFeatures {

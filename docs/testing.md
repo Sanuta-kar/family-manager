@@ -90,7 +90,7 @@ On a physical phone on the same Wi-Fi, use the Mac LAN IP:
 
 Real FCM requires a Firebase project: `google-services.json` on the Android app and `FCM_SERVICE_ACCOUNT_JSON` on the worker. To avoid blocking UI/alarm testing on that setup, the two are **decoupled**:
 
-- **Alarm UI without push:** trigger `AlarmActivity` directly via an `adb` intent so you can test the strong-reminder UX without any push delivery.
+- **Alarm UI without push:** to test the strong-reminder UX without push delivery, trigger `AlarmActivity` through its normal alarm path. Note it is declared `android:exported="false"`, so a plain `adb shell am start -n …/.alarm.AlarmActivity` is rejected with a `SecurityException`; either drive it via `AlarmManager`/the receiver, or temporarily set `android:exported="true"` in a debug build to launch it directly.
 - **End-to-end FCM:** treat real push delivery as its own checklist item, performed once a Firebase project exists.
 - Confirm FCM token registration fails gracefully (no crash) when Firebase is not configured.
 

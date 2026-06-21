@@ -172,21 +172,30 @@ private fun PairDeviceCard(apiClient: ApiClient, sessionStore: SessionStore, onP
                                 sessionStore.saveTokens(auth.accessToken, auth.refreshToken)
                                 onPaired()
                                 status = "Paired"
-                                FirebaseMessaging.getInstance().token
-                                    .addOnSuccessListener { fcmToken ->
-                                        scope.launch {
-                                            try {
-                                                apiClient.registerFcmToken(fcmToken)
-                                            } catch (error: Exception) {
-                                                status = "Paired; push token pending"
+                                // Best-effort FCM registration. When Firebase is not
+                                // configured (no google-services.json locally),
+                                // getInstance() throws; that must not flip the
+                                // successful pairing above into a failure.
+                                try {
+                                    FirebaseMessaging.getInstance().token
+                                        .addOnSuccessListener { fcmToken ->
+                                            scope.launch {
+                                                try {
+                                                    apiClient.registerFcmToken(fcmToken)
+                                                } catch (error: Exception) {
+                                                    status = "Paired; push token pending"
+                                                }
                                             }
                                         }
-                                    }
-                                    .addOnFailureListener {
-                                        status = "Paired; push token pending"
-                                    }
+                                        .addOnFailureListener {
+                                            status = "Paired; push token pending"
+                                        }
+                                } catch (error: Exception) {
+                                    status = "Paired; push token pending"
+                                }
                             } catch (error: Exception) {
-                                status = "Pairing failed"
+                                android.util.Log.e("Pairing", "claim failed", error)
+                                status = "Pairing failed: ${error::class.simpleName}: ${error.message}"
                             } finally {
                                 pairing = false
                             }
