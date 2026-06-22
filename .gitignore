@@ -23,6 +23,7 @@ apps/api/prisma/generated/
 
 # Android / Gradle
 apps/android/.gradle/
+apps/android/.kotlin/
 apps/android/build/
 apps/android/app/build/
 *.apk
