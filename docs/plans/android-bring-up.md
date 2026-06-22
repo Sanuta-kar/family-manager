@@ -16,6 +16,16 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - Replace hardcoded cards with `apiClient.today(childId)`; render real `MissionOccurrenceDto`s with loading/empty/error states.
 - **Backend dependency — resolved.** `POST /devices/claim` now returns `childProfileId` and `childDisplayName` in the response body (alongside the token pair), so the app can call `today(childId)` immediately after pairing without decoding the JWT. See [../features/auth-and-pairing.md](../features/auth-and-pairing.md).
 
+**Implemented 2026-06-22.** The child today screen now loads real data:
+
+- `AuthResponse` carries the optional `childProfileId`/`childDisplayName` from claim; `SessionStore.saveTokens(...)` persists `childProfileId` so the app can call `today(childId)` after pairing.
+- `MissionOccurrenceDto` gained the nested `template { title, scheduledTime }` returned by the API.
+- `ChildTodayScreen` replaces the two hardcoded `MissionCard`s with a `LaunchedEffect`-driven fetch over `TodayState` (`Loading` → spinner, `Error` → message + Retry, `Loaded` → real cards or an "All clear" empty state). `statusLabel(...)` maps each `MissionStatus` to a child-friendly label.
+- Done/Snooze/Talk remain stubbed (Phase 2).
+- **Verified end-to-end (2026-06-22):** `./gradlew :app:compileDebugKotlin` succeeds; the live `claim`/`today` responses deserialize cleanly into the new DTOs; and on the emulator a fresh pairing renders two real mission cards (title, `scheduledTime`, and "Scheduled" status) loaded from `today(childId)`.
+
+**Note on upgrading an existing install:** a device paired by a pre-Phase-1 build has a token but no persisted `childProfileId`, so the new build shows the "Missing child profile. Re-pair this device." error card until the session is cleared and re-paired. (A migration/JWT-decode fallback could smooth this, but re-pairing is acceptable for now.)
+
 ## Phase 2 — Mission actions
 
 - Wire Done → `POST /mission-occurrences/:id/done`, Snooze → `/snooze`, Talk → open chat.

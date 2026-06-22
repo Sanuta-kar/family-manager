@@ -77,7 +77,12 @@ data class BootstrapParentRequest(
 @Serializable
 data class AuthResponse(
     val accessToken: String,
-    val refreshToken: String
+    val refreshToken: String,
+    // Returned by POST /devices/claim so the app can call today(childId)
+    // immediately after pairing without decoding the child JWT. Nullable
+    // because the parent bootstrap/login responses do not carry them.
+    val childProfileId: String? = null,
+    val childDisplayName: String? = null
 )
 
 @Serializable
@@ -91,8 +96,19 @@ data class ClaimDeviceRequest(
 @Serializable
 data class MissionOccurrenceDto(
     val id: String,
+    // ISO-8601 instant for the scheduled time.
     val scheduledFor: String,
-    val status: String
+    // MissionStatus enum value from the API (e.g. "scheduled", "notified",
+    // "snoozed", "completed", "failed").
+    val status: String,
+    val template: MissionTemplateDto
+)
+
+@Serializable
+data class MissionTemplateDto(
+    val title: String,
+    // Time-of-day string ("HH:mm") the mission is scheduled for.
+    val scheduledTime: String
 )
 
 @Serializable

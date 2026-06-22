@@ -12,14 +12,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.familymanager.app.data.ApiClient
 import com.familymanager.app.data.ClaimDeviceRequest
+import com.familymanager.app.data.MissionOccurrenceDto
 import com.familymanager.app.data.SessionStore
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
@@ -92,6 +96,12 @@ private fun ModeButton(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+private sealed interface TodayState {
+    data object Loading : TodayState
+    data class Loaded(val missions: List<MissionOccurrenceDto>) : TodayState
+    data class Error(val message: String) : TodayState
+}
+
 @Composable
 private fun ChildTodayScreen(
     messages: MutableList<ChatLine>,
@@ -100,6 +110,25 @@ private fun ChildTodayScreen(
     sessionStore: SessionStore,
     onPaired: () -> Unit
 ) {
+    var todayState by remember { mutableStateOf<TodayState>(TodayState.Loading) }
+    // Bump to re-trigger the load (e.g. after pairing or a retry).
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(hasChildSession, reloadKey) {
+        if (!hasChildSession) return@LaunchedEffect
+        val childId = sessionStore.childProfileId()
+        if (childId == null) {
+            todayState = TodayState.Error("Missing child profile. Re-pair this device.")
+            return@LaunchedEffect
+        }
+        todayState = TodayState.Loading
+        todayState = try {
+            TodayState.Loaded(apiClient.today(childId))
+        } catch (error: Exception) {
+            TodayState.Error(error.message ?: "Could not load today's missions.")
+        }
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!hasChildSession) {
             item {
@@ -109,23 +138,57 @@ private fun ChildTodayScreen(
                     onPaired = onPaired
                 )
             }
-        }
-        item {
-            MissionCard(
-                title = "Walk with dog",
-                time = "07:45",
-                status = "Needs Done + location proof"
-            )
-        }
-        item {
-            MissionCard(
-                title = "Brush teeth",
-                time = "20:30",
-                status = "Needs Done + photo proof"
-            )
+        } else {
+            when (val state = todayState) {
+                is TodayState.Loading -> item { LoadingCard() }
+                is TodayState.Error -> item { ErrorCard(state.message) { reloadKey++ } }
+                is TodayState.Loaded ->
+                    if (state.missions.isEmpty()) {
+                        item { EmptyMissionsCard() }
+                    } else {
+                        items(state.missions, key = { it.id }) { occurrence ->
+                            MissionCard(occurrence)
+                        }
+                    }
+            }
         }
         item {
             ChatPanel(messages)
+        }
+    }
+}
+
+@Composable
+private fun LoadingCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator()
+            Text("Loading today's missions…")
+        }
+    }
+}
+
+@Composable
+private fun EmptyMissionsCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("All clear", style = MaterialTheme.typography.titleLarge)
+            Text("No missions scheduled for today.")
+        }
+    }
+}
+
+@Composable
+private fun ErrorCard(message: String, onRetry: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Couldn't load missions", style = MaterialTheme.typography.titleLarge)
+            Text(message)
+            Button(onClick = onRetry) { Text("Retry") }
         }
     }
 }
@@ -169,7 +232,7 @@ private fun PairDeviceCard(apiClient: ApiClient, sessionStore: SessionStore, onP
                                         deviceName = deviceName.trim()
                                     )
                                 )
-                                sessionStore.saveTokens(auth.accessToken, auth.refreshToken)
+                                sessionStore.saveTokens(auth.accessToken, auth.refreshToken, auth.childProfileId)
                                 onPaired()
                                 status = "Paired"
                                 // Best-effort FCM registration. When Firebase is not
@@ -238,12 +301,13 @@ private fun ParentDashboardScreen() {
 }
 
 @Composable
-private fun MissionCard(title: String, time: String, status: String) {
+private fun MissionCard(occurrence: MissionOccurrenceDto) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
-            Text(time, style = MaterialTheme.typography.titleMedium)
-            Text(status)
+            Text(occurrence.template.title, style = MaterialTheme.typography.titleLarge)
+            Text(occurrence.template.scheduledTime, style = MaterialTheme.typography.titleMedium)
+            Text(statusLabel(occurrence.status))
+            // Done / Snooze / Talk are wired in Phase 2.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {}) { Text("Done") }
                 OutlinedButton(onClick = {}) { Text("Snooze") }
@@ -251,6 +315,19 @@ private fun MissionCard(title: String, time: String, status: String) {
             }
         }
     }
+}
+
+/** Maps a raw MissionStatus enum value to a child-friendly label. */
+private fun statusLabel(status: String): String = when (status.lowercase()) {
+    "scheduled" -> "Scheduled"
+    "notified" -> "Time to do it"
+    "snoozed" -> "Snoozed"
+    "proof_pending" -> "Needs proof"
+    "parent_review" -> "Waiting for parent"
+    "completed" -> "Done"
+    "failed" -> "Missed"
+    "cancelled" -> "Cancelled"
+    else -> status
 }
 
 @Composable
