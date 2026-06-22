@@ -9,8 +9,11 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -47,6 +50,34 @@ class ApiClient(
         return client.get("$baseUrl/children/$childId/missions/today") {
             tokenProvider()?.let { bearerAuth(it) }
         }.body()
+    }
+
+    /** Marks a mission done (submits a tap-done proof). The response omits the
+     *  template, so callers should refresh today() rather than read the result. */
+    suspend fun markDone(occurrenceId: String) {
+        client.post("$baseUrl/mission-occurrences/$occurrenceId/done") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow()
+    }
+
+    /** Requests a snooze. Returns the backend decision (approved or denied);
+     *  a denied decision is still an HTTP 2xx, so it does not throw. */
+    suspend fun snooze(occurrenceId: String, requestedMinutes: Int): SnoozeResult {
+        return client.post("$baseUrl/mission-occurrences/$occurrenceId/snooze") {
+            tokenProvider()?.let { bearerAuth(it) }
+            contentType(ContentType.Application.Json)
+            setBody(SnoozeRequest(requestedMinutes))
+        }.orThrow().body()
+    }
+
+    // ktor's default expectSuccess = false means non-2xx does not throw; surface
+    // those as a typed error carrying the server message instead of letting the
+    // body decoder choke on an error payload.
+    private suspend fun HttpResponse.orThrow(): HttpResponse {
+        if (!status.isSuccess()) {
+            throw ApiException(status.value, runCatching { bodyAsText() }.getOrDefault(""))
+        }
+        return this
     }
 
     suspend fun sendChatMessage(threadId: String, text: String): ChatSendResponse {
@@ -108,8 +139,33 @@ data class MissionOccurrenceDto(
 data class MissionTemplateDto(
     val title: String,
     // Time-of-day string ("HH:mm") the mission is scheduled for.
-    val scheduledTime: String
+    val scheduledTime: String,
+    // Defaulted so older/partial responses still deserialize; extra policy
+    // fields (maxSnoozes, hardDeadlineMinutes, …) are dropped by ignoreUnknownKeys.
+    val snoozePolicy: SnoozePolicyDto = SnoozePolicyDto()
 )
+
+@Serializable
+data class SnoozePolicyDto(
+    val allowed: Boolean = true,
+    val defaultMinutes: Int = 10,
+    val allowedMinutes: List<Int> = listOf(10)
+)
+
+@Serializable
+data class SnoozeRequest(val requestedMinutes: Int, val source: String = "child")
+
+@Serializable
+data class SnoozeResult(
+    val decision: String,
+    val approvedMinutes: Int? = null,
+    val nextAlarmAt: String? = null,
+    val reason: String? = null
+)
+
+/** Raised for non-2xx API responses, carrying the HTTP status and server body. */
+class ApiException(val statusCode: Int, val body: String) :
+    Exception("HTTP $statusCode${if (body.isNotBlank()) ": $body" else ""}")
 
 @Serializable
 data class ChatMessageRequest(val text: String)

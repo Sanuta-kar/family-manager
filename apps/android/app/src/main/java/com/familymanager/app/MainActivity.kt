@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -111,8 +112,12 @@ private fun ChildTodayScreen(
     onPaired: () -> Unit
 ) {
     var todayState by remember { mutableStateOf<TodayState>(TodayState.Loading) }
-    // Bump to re-trigger the load (e.g. after pairing or a retry).
+    // Bump to re-trigger the load (e.g. after pairing, an action, or a retry).
     var reloadKey by remember { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // Lifted so "Talk" on a mission can seed the chat with context.
+    var chatDraft by remember { mutableStateOf("") }
 
     LaunchedEffect(hasChildSession, reloadKey) {
         if (!hasChildSession) return@LaunchedEffect
@@ -129,7 +134,7 @@ private fun ChildTodayScreen(
         }
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!hasChildSession) {
             item {
                 PairDeviceCard(
@@ -146,14 +151,24 @@ private fun ChildTodayScreen(
                     if (state.missions.isEmpty()) {
                         item { EmptyMissionsCard() }
                     } else {
+                        // Chat panel is the item right after the mission cards.
+                        val chatIndex = state.missions.size
                         items(state.missions, key = { it.id }) { occurrence ->
-                            MissionCard(occurrence)
+                            MissionCard(
+                                occurrence = occurrence,
+                                apiClient = apiClient,
+                                onChanged = { reloadKey++ },
+                                onTalk = {
+                                    chatDraft = "About \"${occurrence.template.title}\": "
+                                    scope.launch { listState.animateScrollToItem(chatIndex) }
+                                }
+                            )
                         }
                     }
             }
         }
         item {
-            ChatPanel(messages)
+            ChatPanel(messages = messages, draft = chatDraft, onDraftChange = { chatDraft = it })
         }
     }
 }
@@ -301,17 +316,66 @@ private fun ParentDashboardScreen() {
 }
 
 @Composable
-private fun MissionCard(occurrence: MissionOccurrenceDto) {
+private fun MissionCard(
+    occurrence: MissionOccurrenceDto,
+    apiClient: ApiClient,
+    onChanged: () -> Unit,
+    onTalk: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(occurrence.template.title, style = MaterialTheme.typography.titleLarge)
             Text(occurrence.template.scheduledTime, style = MaterialTheme.typography.titleMedium)
             Text(statusLabel(occurrence.status))
-            // Done / Snooze / Talk are wired in Phase 2.
+            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {}) { Text("Done") }
-                OutlinedButton(onClick = {}) { Text("Snooze") }
-                OutlinedButton(onClick = {}) { Text("Talk") }
+                Button(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        message = null
+                        scope.launch {
+                            try {
+                                apiClient.markDone(occurrence.id)
+                                onChanged()
+                            } catch (error: Exception) {
+                                message = "Couldn't mark done: ${error.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                ) { Text("Done") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        message = null
+                        scope.launch {
+                            try {
+                                val result = apiClient.snooze(
+                                    occurrence.id,
+                                    occurrence.template.snoozePolicy.defaultMinutes
+                                )
+                                if (result.decision == "approved") {
+                                    message = "Snoozed ${result.approvedMinutes} min"
+                                    onChanged()
+                                } else {
+                                    message = result.reason ?: "Snooze denied"
+                                }
+                            } catch (error: Exception) {
+                                message = "Couldn't snooze: ${error.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                ) { Text("Snooze") }
+                OutlinedButton(enabled = !busy, onClick = onTalk) { Text("Talk") }
             }
         }
     }
@@ -331,8 +395,11 @@ private fun statusLabel(status: String): String = when (status.lowercase()) {
 }
 
 @Composable
-private fun ChatPanel(messages: MutableList<ChatLine>) {
-    var text by remember { mutableStateOf("") }
+private fun ChatPanel(
+    messages: MutableList<ChatLine>,
+    draft: String,
+    onDraftChange: (String) -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("OpenClaw Chat", style = MaterialTheme.typography.titleLarge)
@@ -341,16 +408,16 @@ private fun ChatPanel(messages: MutableList<ChatLine>) {
             }
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
-                value = text,
-                onValueChange = { text = it },
+                value = draft,
+                onValueChange = onDraftChange,
                 label = { Text("Message") }
             )
             Button(
                 onClick = {
-                    if (text.isNotBlank()) {
-                        messages.add(ChatLine("Me", text))
+                    if (draft.isNotBlank()) {
+                        messages.add(ChatLine("Me", draft))
                         messages.add(ChatLine("OpenClaw", "I will draft that if it changes your schedule. You will confirm before it is saved."))
-                        text = ""
+                        onDraftChange("")
                     }
                 }
             ) {

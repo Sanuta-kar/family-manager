@@ -31,6 +31,13 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - Wire Done → `POST /mission-occurrences/:id/done`, Snooze → `/snooze`, Talk → open chat.
 - Wire the same three actions in `AlarmActivity` (the buttons currently only close the screen).
 
+**Implemented 2026-06-22.**
+
+- `ApiClient` gained `markDone(id)` and `snooze(id, minutes)`, plus an `orThrow()` helper that turns non-2xx responses into a typed `ApiException` (ktor's default `expectSuccess = false` otherwise swallows them). `MissionTemplateDto` now carries `snoozePolicy { allowed, defaultMinutes, allowedMinutes }` (defaulted) so the card snoozes with an allowed duration. `done`/`snooze` responses omit the template, so the client fires-and-refreshes (`today()`) rather than reading them back.
+- `MissionCard` runs Done/Snooze in a coroutine with per-card busy + inline message state; a successful action bumps `reloadKey` to refetch. Snooze surfaces the backend decision (`approved` → "Snoozed N min", else the denial `reason`). **Talk** seeds the (lifted) chat draft with `About "<title>": ` and scrolls the list to the chat panel.
+- `AlarmActivity` wires the same Done/Snooze via `ApiClient` (falling back to a 10-min snooze since it has no template); **Talk** launches `MainActivity`. Done/approved-snooze close the alarm; failures stay open with a message.
+- **Verified end-to-end on the emulator (2026-06-22):** Done on a `tap_done` mission → `completed` + coins; Done on an empty-proof-policy mission correctly surfaces the API 400 ("Proof type is not accepted"); Snooze on a `notified` mission → `snoozed` (approved 10 min); Talk seeds the chat draft and scrolls. `AlarmActivity` is `exported=false` so its actions were verified by compile + code parity, not adb (same as the Phase 0 note).
+
 ## Phase 3 — Chat + confirm cards
 
 - Real thread create/list, send message, render the OpenClaw response.
