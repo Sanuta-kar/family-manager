@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.familymanager.app.data.ApiClient
+import com.familymanager.app.data.ChatMessageDto
 import com.familymanager.app.data.ClaimDeviceRequest
 import com.familymanager.app.data.MissionOccurrenceDto
 import com.familymanager.app.data.SessionStore
@@ -57,11 +58,6 @@ fun FamilyMissionApp() {
     val apiClient = remember { ApiClient(tokenProvider = { sessionStore.accessToken() }) }
     var mode by remember { mutableStateOf(AppMode.Child) }
     var hasChildSession by remember { mutableStateOf(sessionStore.accessToken() != null) }
-    val messages = remember {
-        mutableStateListOf(
-            ChatLine("OpenClaw", "I am here in the family app. Ask me to talk or draft reminders.")
-        )
-    }
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -74,7 +70,6 @@ fun FamilyMissionApp() {
 
                 if (mode == AppMode.Child) {
                     ChildTodayScreen(
-                        messages = messages,
                         hasChildSession = hasChildSession,
                         apiClient = apiClient,
                         sessionStore = sessionStore,
@@ -105,7 +100,6 @@ private sealed interface TodayState {
 
 @Composable
 private fun ChildTodayScreen(
-    messages: MutableList<ChatLine>,
     hasChildSession: Boolean,
     apiClient: ApiClient,
     sessionStore: SessionStore,
@@ -144,6 +138,8 @@ private fun ChildTodayScreen(
                 )
             }
         } else {
+            // Chat panel is the last item; its index is the count of items above it.
+            val missionCount = (todayState as? TodayState.Loaded)?.missions?.size ?: 1
             when (val state = todayState) {
                 is TodayState.Loading -> item { LoadingCard() }
                 is TodayState.Error -> item { ErrorCard(state.message) { reloadKey++ } }
@@ -151,8 +147,6 @@ private fun ChildTodayScreen(
                     if (state.missions.isEmpty()) {
                         item { EmptyMissionsCard() }
                     } else {
-                        // Chat panel is the item right after the mission cards.
-                        val chatIndex = state.missions.size
                         items(state.missions, key = { it.id }) { occurrence ->
                             MissionCard(
                                 occurrence = occurrence,
@@ -160,15 +154,15 @@ private fun ChildTodayScreen(
                                 onChanged = { reloadKey++ },
                                 onTalk = {
                                     chatDraft = "About \"${occurrence.template.title}\": "
-                                    scope.launch { listState.animateScrollToItem(chatIndex) }
+                                    scope.launch { listState.animateScrollToItem(missionCount) }
                                 }
                             )
                         }
                     }
             }
-        }
-        item {
-            ChatPanel(messages = messages, draft = chatDraft, onDraftChange = { chatDraft = it })
+            item {
+                ChatPanel(apiClient = apiClient, draft = chatDraft, onDraftChange = { chatDraft = it })
+            }
         }
     }
 }
@@ -396,16 +390,74 @@ private fun statusLabel(status: String): String = when (status.lowercase()) {
 
 @Composable
 private fun ChatPanel(
-    messages: MutableList<ChatLine>,
+    apiClient: ApiClient,
     draft: String,
     onDraftChange: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val messages = remember { mutableStateListOf<ChatMessageDto>() }
+    var threadId by remember { mutableStateOf<String?>(null) }
+    // Set when the assistant proposes a confirmable action; cleared on confirm/reject.
+    var pendingDraftId by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    // Bootstrap: reuse the most recent thread or create one, then load history.
+    LaunchedEffect(Unit) {
+        try {
+            val thread = apiClient.listThreads().firstOrNull() ?: apiClient.createThread()
+            threadId = thread.id
+            messages.addAll(apiClient.listMessages(thread.id))
+        } catch (error: Exception) {
+            status = "Couldn't load chat: ${error.message}"
+        }
+    }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("OpenClaw Chat", style = MaterialTheme.typography.titleLarge)
-            messages.takeLast(4).forEach { line ->
-                Text("${line.sender}: ${line.text}")
+            if (messages.isEmpty()) {
+                Text("Ask me to talk or draft a reminder.", style = MaterialTheme.typography.bodyMedium)
             }
+            messages.takeLast(8).forEach { message ->
+                Text("${senderLabel(message.sender)}: ${message.text}")
+            }
+            status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+            pendingDraftId?.let { draftId ->
+                ConfirmActionCard(
+                    enabled = !busy,
+                    onConfirm = {
+                        busy = true
+                        scope.launch {
+                            try {
+                                apiClient.confirmActionDraft(draftId)
+                                status = "Saved. The reminder was created."
+                                pendingDraftId = null
+                            } catch (error: Exception) {
+                                status = "Couldn't confirm: ${error.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    onReject = {
+                        busy = true
+                        scope.launch {
+                            try {
+                                apiClient.rejectActionDraft(draftId)
+                                status = "Discarded."
+                                pendingDraftId = null
+                            } catch (error: Exception) {
+                                status = "Couldn't reject: ${error.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                )
+            }
+
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = draft,
@@ -413,11 +465,24 @@ private fun ChatPanel(
                 label = { Text("Message") }
             )
             Button(
+                enabled = !busy && draft.isNotBlank() && threadId != null,
                 onClick = {
-                    if (draft.isNotBlank()) {
-                        messages.add(ChatLine("Me", draft))
-                        messages.add(ChatLine("OpenClaw", "I will draft that if it changes your schedule. You will confirm before it is saved."))
-                        onDraftChange("")
+                    val tid = threadId ?: return@Button
+                    val text = draft
+                    busy = true
+                    status = null
+                    scope.launch {
+                        try {
+                            val response = apiClient.sendChatMessage(tid, text)
+                            messages.add(response.userMessage)
+                            messages.add(response.assistantMessage)
+                            pendingDraftId = response.actionDraftId
+                            onDraftChange("")
+                        } catch (error: Exception) {
+                            status = "Couldn't send: ${error.message}"
+                        } finally {
+                            busy = false
+                        }
                     }
                 }
             ) {
@@ -427,9 +492,23 @@ private fun ChatPanel(
     }
 }
 
+@Composable
+private fun ConfirmActionCard(enabled: Boolean, onConfirm: () -> Unit, onReject: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Confirm change", style = MaterialTheme.typography.titleMedium)
+            Text("OpenClaw drafted a schedule change. Nothing is saved until you confirm.")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = enabled, onClick = onConfirm) { Text("Confirm") }
+                OutlinedButton(enabled = enabled, onClick = onReject) { Text("Reject") }
+            }
+        }
+    }
+}
+
+private fun senderLabel(sender: String): String = if (sender == "user") "Me" else "OpenClaw"
+
 private enum class AppMode {
     Parent,
     Child
 }
-
-private data class ChatLine(val sender: String, val text: String)

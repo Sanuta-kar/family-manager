@@ -80,12 +80,44 @@ class ApiClient(
         return this
     }
 
-    suspend fun sendChatMessage(threadId: String, text: String): ChatSendResponse {
+    suspend fun listThreads(): List<ChatThreadDto> {
+        return client.get("$baseUrl/chat/threads") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow().body()
+    }
+
+    suspend fun createThread(): ChatThreadDto {
+        return client.post("$baseUrl/chat/threads") {
+            tokenProvider()?.let { bearerAuth(it) }
+            contentType(ContentType.Application.Json)
+            setBody(CreateThreadRequest())
+        }.orThrow().body()
+    }
+
+    suspend fun listMessages(threadId: String): List<ChatMessageDto> {
+        return client.get("$baseUrl/chat/threads/$threadId/messages") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow().body()
+    }
+
+    suspend fun sendChatMessage(threadId: String, text: String): SendMessageResponse {
         return client.post("$baseUrl/chat/threads/$threadId/messages") {
             tokenProvider()?.let { bearerAuth(it) }
             contentType(ContentType.Application.Json)
             setBody(ChatMessageRequest(text))
-        }.body()
+        }.orThrow().body()
+    }
+
+    suspend fun confirmActionDraft(draftId: String) {
+        client.post("$baseUrl/chat/action-drafts/$draftId/confirm") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow()
+    }
+
+    suspend fun rejectActionDraft(draftId: String) {
+        client.post("$baseUrl/chat/action-drafts/$draftId/reject") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow()
     }
 
     suspend fun registerFcmToken(fcmToken: String) {
@@ -171,7 +203,24 @@ class ApiException(val statusCode: Int, val body: String) :
 data class ChatMessageRequest(val text: String)
 
 @Serializable
-data class ChatSendResponse(
+data class CreateThreadRequest(val title: String? = null, val childProfileId: String? = null)
+
+@Serializable
+data class ChatThreadDto(val id: String, val title: String = "OpenClaw Chat")
+
+@Serializable
+data class ChatMessageDto(
+    val id: String,
+    // "user" or "openclaw"
+    val sender: String,
+    val text: String
+)
+
+@Serializable
+data class SendMessageResponse(
+    val userMessage: ChatMessageDto,
+    val assistantMessage: ChatMessageDto,
+    // Present when the assistant proposed a confirmable action draft.
     val actionDraftId: String? = null
 )
 

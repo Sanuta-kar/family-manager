@@ -43,6 +43,12 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - Real thread create/list, send message, render the OpenClaw response.
 - Show a **Confirm card** when a response carries an action draft → `POST /action-drafts/:id/confirm` | `/reject`.
 
+**Implemented 2026-06-22.**
+
+- `ApiClient` gained `listThreads()`, `createThread()`, `listMessages(threadId)`, `confirmActionDraft(id)`, `rejectActionDraft(id)`; `sendChatMessage` now returns the real `{ userMessage, assistantMessage, actionDraftId? }`. New DTOs `ChatThreadDto` / `ChatMessageDto` (only `id`/`sender`/`text` needed; `ignoreUnknownKeys` drops `metadata` etc.).
+- `ChatPanel` is now backed by the API: on first composition it reuses the most recent thread or creates one and loads history; Send posts the message and appends the real user + assistant messages; a returned `actionDraftId` raises a **Confirm card** ("Nothing is saved until you confirm") wired to confirm/reject. The mock `ChatLine` seed is gone; the panel renders only when paired (it needs a session) and sits right after the mission cards (so Talk still scrolls to it).
+- **Verified end-to-end on the emulator (2026-06-22):** sending "remind me to read a book every day at 08:00" rendered both messages, surfaced the Confirm card (backend created a `drafted` `create_mission_template`), and **Confirm** flipped the draft to `confirmed`, created the `read a book` template (`08:00`, `FREQ=DAILY`), showed "Saved. The reminder was created." and dismissed the card. (Local OpenClaw uses the deterministic fallback parser; `OPENCLAW_ADAPTER_URL` is unset.)
+
 ## Phase 4 — Parent mode
 
 - Parent bootstrap/login UI.
