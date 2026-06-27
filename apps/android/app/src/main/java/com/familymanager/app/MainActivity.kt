@@ -1,8 +1,15 @@
 package com.familymanager.app
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,11 +53,49 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    // POST_NOTIFICATIONS is a runtime permission on Android 13+. Best-effort: the
+    // app still functions if denied (the alarm path is a full-screen activity), so
+    // the result is intentionally not acted on beyond the system prompt.
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ensureMissionChannel()
+        requestNotificationPermissionIfNeeded()
         setContent {
             FamilyMissionApp()
         }
+    }
+
+    /** Creates the high-importance channel mission reminders are posted on (no-op
+     *  below Android 8, where channels don't exist). */
+    private fun ensureMissionChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                MISSION_CHANNEL_ID,
+                getString(R.string.mission_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = getString(R.string.mission_channel_description) }
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    companion object {
+        // Exact alarms: the scheduler uses AlarmManager.setAlarmClock(), which is
+        // exempt from the SCHEDULE_EXACT_ALARM user-grant requirement on Android
+        // 12+, so no settings redirect is needed here. Full-screen intent is
+        // declared in the manifest (alarm-category use).
+        const val MISSION_CHANNEL_ID = "mission_reminders"
     }
 }
 

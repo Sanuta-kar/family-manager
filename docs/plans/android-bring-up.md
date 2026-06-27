@@ -77,6 +77,19 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - `ApiClient` gained an injectable `engine: HttpClientEngine = Android.create()` for testing.
 - **First JVM unit tests in the Android module** (`app/src/test/.../ApiClientRefreshTest.kt`, ktor `MockEngine`): (1) a 401 refreshes, persists the new pair, and retries with the fresh token; (2) a failing refresh re-surfaces the original 401 `ApiException`; (3) with no refresh token the call is not retried. Added `junit`, `ktor-client-mock`, `kotlinx-coroutines-test` as `testImplementation`. **Verified:** `./gradlew :app:testDebugUnitTest` → 3 passed, 0 failures.
 
+**Runtime permissions + notification channel — implemented 2026-06-27.**
+
+- `MainActivity.onCreate` now creates the high-importance `mission_reminders` `NotificationChannel` (no-op below Android 8) and requests `POST_NOTIFICATIONS` at runtime on Android 13+ via `ActivityResultContracts.RequestPermission` (best-effort — the alarm path is a full-screen activity, so a denial doesn't break the app). New string resources `mission_channel_name`/`mission_channel_description`.
+- **Exact alarms:** `MissionAlarmScheduler` uses `AlarmManager.setAlarmClock()`, which is exempt from the `SCHEDULE_EXACT_ALARM` user-grant requirement on Android 12+, so no settings redirect is needed — documented in a comment rather than adding an intrusive per-launch prompt. `USE_FULL_SCREEN_INTENT` is declared in the manifest (alarm-category use).
+
+**Boot-time alarm rescheduling — implemented 2026-06-27.**
+
+- New `PendingAlarmStore` (SharedPreferences-backed; Room cache stays a roadmap item) records each scheduled alarm as `"triggerAtMillis|title"` keyed by `occurrenceId`, with pure `encode`/`decode` helpers (`decode` splits on the first `|` only so titles containing `|` round-trip).
+- `MissionAlarmScheduler.scheduleExact()` now persists the alarm; `MissionAlarmReceiver` removes it once it fires; `BootReceiver` (previously a log-only stub) re-arms every future alarm from the store on `ACTION_BOOT_COMPLETED`. `futureAlarms()` prunes past-due/corrupt records.
+- **Test** (`PendingAlarmStoreTest.kt`): encode/decode round-trip, titles containing `|` preserved, and malformed records rejected. **Verified:** `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug` → all green, 6 unit tests passing total, 0 failures.
+
+**LAN base URL (real phone):** already supported via the `FAMILY_MANAGER_DEBUG_API_BASE_URL` gradle property (`app/build.gradle.kts`); no change needed. Driving the build on a physical phone over LAN remains a manual step (`./gradlew :app:assembleDebug -PFAMILY_MANAGER_DEBUG_API_BASE_URL=http://<lan-ip>:4000/api`).
+
 ## Push testing
 
 Real FCM needs a Firebase project; alarm-UI testing is decoupled from it (trigger `AlarmActivity` via `adb`). See the push testing strategy in [../testing.md](../testing.md).
