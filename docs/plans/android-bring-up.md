@@ -70,6 +70,13 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - Runtime permission prompts: notifications (Android 13+), exact alarm, full-screen intent.
 - Boot-time alarm rescheduling (`BootReceiver`). (Room cache stays a roadmap item.)
 
+**401 → refresh-token flow — implemented 2026-06-27.**
+
+- `ApiClient` now takes `refreshTokenProvider` + `onTokensRefreshed` alongside `tokenProvider`. Every authenticated call is routed through a private `authed { token -> … }` helper: on an HTTP 401 it refreshes once via `POST /auth/refresh` (`RefreshRequest(refreshToken)` → `AuthResponse`), persists the rotated pair through `onTokensRefreshed`, and retries the original request with the new access token. A `Mutex` serializes refreshes so a burst of concurrent 401s triggers a single refresh (a coroutine that loses the race reuses the already-rotated token). If there is no refresh token or the refresh fails, the original 401 surfaces unchanged via `orThrow()`.
+- `SessionStore` gained `refreshToken()` / `parentRefreshToken()` getters. All four construction sites (child + parent in `MainActivity`, plus `AlarmActivity` and `FamilyMessagingService`, which use the child session) now pass the matching refresh getter and save callback — so a refresh from any surface persists to the right session.
+- `ApiClient` gained an injectable `engine: HttpClientEngine = Android.create()` for testing.
+- **First JVM unit tests in the Android module** (`app/src/test/.../ApiClientRefreshTest.kt`, ktor `MockEngine`): (1) a 401 refreshes, persists the new pair, and retries with the fresh token; (2) a failing refresh re-surfaces the original 401 `ApiException`; (3) with no refresh token the call is not retried. Added `junit`, `ktor-client-mock`, `kotlinx-coroutines-test` as `testImplementation`. **Verified:** `./gradlew :app:testDebugUnitTest` → 3 passed, 0 failures.
+
 ## Push testing
 
 Real FCM needs a Firebase project; alarm-UI testing is decoupled from it (trigger `AlarmActivity` via `adb`). See the push testing strategy in [../testing.md](../testing.md).

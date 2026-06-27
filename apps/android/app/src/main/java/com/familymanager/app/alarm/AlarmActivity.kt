@@ -53,7 +53,13 @@ private const val DEFAULT_SNOOZE_MINUTES = 10
 private fun AlarmScreen(title: String, occurrenceId: String, onClose: () -> Unit) {
     val context = LocalContext.current
     val sessionStore = remember { SessionStore(context) }
-    val apiClient = remember { ApiClient(tokenProvider = { sessionStore.accessToken() }) }
+    val apiClient = remember {
+        ApiClient(
+            tokenProvider = { sessionStore.accessToken() },
+            refreshTokenProvider = { sessionStore.refreshToken() },
+            onTokensRefreshed = { access, refresh -> sessionStore.saveTokens(access, refresh) }
+        )
+    }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }

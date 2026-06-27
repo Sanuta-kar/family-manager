@@ -3,6 +3,7 @@ package com.familymanager.app.data
 import com.familymanager.app.BuildConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.bearerAuth
@@ -15,14 +16,26 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+/**
+ * @param tokenProvider reads the current access token for this session (child or parent).
+ * @param refreshTokenProvider reads the current refresh token; `null` disables the
+ *        automatic 401 → refresh retry (e.g. an unauthenticated client).
+ * @param onTokensRefreshed persists the rotated token pair after a successful refresh.
+ * @param engine injectable for tests (MockEngine); defaults to the real Android engine.
+ */
 class ApiClient(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
-    private val tokenProvider: () -> String? = { null }
+    private val tokenProvider: () -> String? = { null },
+    private val refreshTokenProvider: () -> String? = { null },
+    private val onTokensRefreshed: (accessToken: String, refreshToken: String) -> Unit = { _, _ -> },
+    engine: HttpClientEngine = Android.create()
 ) {
-    private val client = HttpClient(Android) {
+    private val client = HttpClient(engine) {
         install(ContentNegotiation) {
             // encodeDefaults so default-valued request fields (e.g.
             // ClaimDeviceRequest.platform = "android") are actually sent;
@@ -30,6 +43,43 @@ class ApiClient(
             // fields (e.g. childProfileId) don't break deserialization.
             json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
         }
+    }
+
+    // Serializes refresh attempts so a burst of concurrent 401s triggers a single
+    // refresh rather than racing to rotate the (single-use) refresh token.
+    private val refreshMutex = Mutex()
+
+    /**
+     * Runs an authenticated request. On a 401 it refreshes the token pair once and
+     * retries with the new access token; if refresh is unavailable or fails, the
+     * original 401 response is returned (so [orThrow] surfaces the real error).
+     */
+    private suspend fun authed(block: suspend (token: String?) -> HttpResponse): HttpResponse {
+        val tokenBefore = tokenProvider()
+        val response = block(tokenBefore)
+        if (response.status.value != 401) return response
+
+        val newToken = refreshMutex.withLock {
+            // Another coroutine may have already refreshed while we waited on the lock.
+            val current = tokenProvider()
+            if (current != null && current != tokenBefore) current else tryRefresh()
+        } ?: return response
+
+        return block(newToken)
+    }
+
+    /** Exchanges the stored refresh token for a fresh pair; returns the new access
+     *  token (and persists the pair) on success, or `null` on any failure. */
+    private suspend fun tryRefresh(): String? {
+        val refresh = refreshTokenProvider() ?: return null
+        val response = client.post("$baseUrl/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody(RefreshRequest(refresh))
+        }
+        if (!response.status.isSuccess()) return null
+        val auth = response.body<AuthResponse>()
+        onTokensRefreshed(auth.accessToken, auth.refreshToken)
+        return auth.accessToken
     }
 
     suspend fun bootstrapParent(request: BootstrapParentRequest): AuthResponse {
@@ -49,25 +99,27 @@ class ApiClient(
     /** Lists the children in the parent's family (or the child's own profile for
      *  a child token). Each child carries its current `coinBalance`. */
     suspend fun listChildren(): List<ChildProfileDto> {
-        return client.get("$baseUrl/children") {
-            tokenProvider()?.let { bearerAuth(it) }
+        return authed { token ->
+            client.get("$baseUrl/children") { token?.let { bearerAuth(it) } }
         }.orThrow().body()
     }
 
     /** Parent-only: mints a one-time pairing code for a child device. The raw
      *  code is only returned here and is never retrievable again. */
     suspend fun createPairingCode(childProfileId: String): PairingCodeDto {
-        return client.post("$baseUrl/devices/pairing-codes") {
-            tokenProvider()?.let { bearerAuth(it) }
-            contentType(ContentType.Application.Json)
-            setBody(PairingCodeRequest(childProfileId))
+        return authed { token ->
+            client.post("$baseUrl/devices/pairing-codes") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(PairingCodeRequest(childProfileId))
+            }
         }.orThrow().body()
     }
 
     /** Parent-only: lists recent escalation alerts (newest first). */
     suspend fun listAlerts(): List<AlertDto> {
-        return client.get("$baseUrl/alerts") {
-            tokenProvider()?.let { bearerAuth(it) }
+        return authed { token ->
+            client.get("$baseUrl/alerts") { token?.let { bearerAuth(it) } }
         }.orThrow().body()
     }
 
@@ -79,26 +131,28 @@ class ApiClient(
     }
 
     suspend fun today(childId: String): List<MissionOccurrenceDto> {
-        return client.get("$baseUrl/children/$childId/missions/today") {
-            tokenProvider()?.let { bearerAuth(it) }
-        }.body()
+        return authed { token ->
+            client.get("$baseUrl/children/$childId/missions/today") { token?.let { bearerAuth(it) } }
+        }.orThrow().body()
     }
 
     /** Marks a mission done (submits a tap-done proof). The response omits the
      *  template, so callers should refresh today() rather than read the result. */
     suspend fun markDone(occurrenceId: String) {
-        client.post("$baseUrl/mission-occurrences/$occurrenceId/done") {
-            tokenProvider()?.let { bearerAuth(it) }
+        authed { token ->
+            client.post("$baseUrl/mission-occurrences/$occurrenceId/done") { token?.let { bearerAuth(it) } }
         }.orThrow()
     }
 
     /** Requests a snooze. Returns the backend decision (approved or denied);
      *  a denied decision is still an HTTP 2xx, so it does not throw. */
     suspend fun snooze(occurrenceId: String, requestedMinutes: Int): SnoozeResult {
-        return client.post("$baseUrl/mission-occurrences/$occurrenceId/snooze") {
-            tokenProvider()?.let { bearerAuth(it) }
-            contentType(ContentType.Application.Json)
-            setBody(SnoozeRequest(requestedMinutes))
+        return authed { token ->
+            client.post("$baseUrl/mission-occurrences/$occurrenceId/snooze") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(SnoozeRequest(requestedMinutes))
+            }
         }.orThrow().body()
     }
 
@@ -113,50 +167,56 @@ class ApiClient(
     }
 
     suspend fun listThreads(): List<ChatThreadDto> {
-        return client.get("$baseUrl/chat/threads") {
-            tokenProvider()?.let { bearerAuth(it) }
+        return authed { token ->
+            client.get("$baseUrl/chat/threads") { token?.let { bearerAuth(it) } }
         }.orThrow().body()
     }
 
     suspend fun createThread(): ChatThreadDto {
-        return client.post("$baseUrl/chat/threads") {
-            tokenProvider()?.let { bearerAuth(it) }
-            contentType(ContentType.Application.Json)
-            setBody(CreateThreadRequest())
+        return authed { token ->
+            client.post("$baseUrl/chat/threads") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(CreateThreadRequest())
+            }
         }.orThrow().body()
     }
 
     suspend fun listMessages(threadId: String): List<ChatMessageDto> {
-        return client.get("$baseUrl/chat/threads/$threadId/messages") {
-            tokenProvider()?.let { bearerAuth(it) }
+        return authed { token ->
+            client.get("$baseUrl/chat/threads/$threadId/messages") { token?.let { bearerAuth(it) } }
         }.orThrow().body()
     }
 
     suspend fun sendChatMessage(threadId: String, text: String): SendMessageResponse {
-        return client.post("$baseUrl/chat/threads/$threadId/messages") {
-            tokenProvider()?.let { bearerAuth(it) }
-            contentType(ContentType.Application.Json)
-            setBody(ChatMessageRequest(text))
+        return authed { token ->
+            client.post("$baseUrl/chat/threads/$threadId/messages") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(ChatMessageRequest(text))
+            }
         }.orThrow().body()
     }
 
     suspend fun confirmActionDraft(draftId: String) {
-        client.post("$baseUrl/chat/action-drafts/$draftId/confirm") {
-            tokenProvider()?.let { bearerAuth(it) }
+        authed { token ->
+            client.post("$baseUrl/chat/action-drafts/$draftId/confirm") { token?.let { bearerAuth(it) } }
         }.orThrow()
     }
 
     suspend fun rejectActionDraft(draftId: String) {
-        client.post("$baseUrl/chat/action-drafts/$draftId/reject") {
-            tokenProvider()?.let { bearerAuth(it) }
+        authed { token ->
+            client.post("$baseUrl/chat/action-drafts/$draftId/reject") { token?.let { bearerAuth(it) } }
         }.orThrow()
     }
 
     suspend fun registerFcmToken(fcmToken: String) {
-        client.post("$baseUrl/devices/fcm-token") {
-            tokenProvider()?.let { bearerAuth(it) }
-            contentType(ContentType.Application.Json)
-            setBody(FcmTokenRequest(fcmToken))
+        authed { token ->
+            client.post("$baseUrl/devices/fcm-token") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(FcmTokenRequest(fcmToken))
+            }
         }
     }
 }
@@ -261,6 +321,9 @@ data class FcmTokenRequest(val fcmToken: String)
 
 @Serializable
 data class LoginRequest(val email: String, val password: String)
+
+@Serializable
+data class RefreshRequest(val refreshToken: String)
 
 @Serializable
 data class ChildProfileDto(

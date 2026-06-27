@@ -58,9 +58,21 @@ class MainActivity : ComponentActivity() {
 fun FamilyMissionApp() {
     val context = LocalContext.current
     val sessionStore = remember { SessionStore(context) }
-    val apiClient = remember { ApiClient(tokenProvider = { sessionStore.accessToken() }) }
+    val apiClient = remember {
+        ApiClient(
+            tokenProvider = { sessionStore.accessToken() },
+            refreshTokenProvider = { sessionStore.refreshToken() },
+            onTokensRefreshed = { access, refresh -> sessionStore.saveTokens(access, refresh) }
+        )
+    }
     // Parent mode authenticates with a separate token from the child session.
-    val parentApiClient = remember { ApiClient(tokenProvider = { sessionStore.parentAccessToken() }) }
+    val parentApiClient = remember {
+        ApiClient(
+            tokenProvider = { sessionStore.parentAccessToken() },
+            refreshTokenProvider = { sessionStore.parentRefreshToken() },
+            onTokensRefreshed = { access, refresh -> sessionStore.saveParentTokens(access, refresh) }
+        )
+    }
     var mode by remember { mutableStateOf(AppMode.Child) }
     var hasChildSession by remember { mutableStateOf(sessionStore.accessToken() != null) }
 

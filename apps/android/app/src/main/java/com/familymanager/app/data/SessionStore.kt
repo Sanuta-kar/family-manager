@@ -7,6 +7,8 @@ class SessionStore(context: Context) {
 
     fun accessToken(): String? = preferences.getString(KEY_ACCESS_TOKEN, null)
 
+    fun refreshToken(): String? = preferences.getString(KEY_REFRESH_TOKEN, null)
+
     fun childProfileId(): String? = preferences.getString(KEY_CHILD_PROFILE_ID, null)
 
     fun saveTokens(accessToken: String, refreshToken: String, childProfileId: String? = null) {
@@ -23,6 +25,8 @@ class SessionStore(context: Context) {
     // toggles between Child and Parent modes on the same device, and the two
     // roles authenticate with different tokens.
     fun parentAccessToken(): String? = preferences.getString(KEY_PARENT_ACCESS_TOKEN, null)
+
+    fun parentRefreshToken(): String? = preferences.getString(KEY_PARENT_REFRESH_TOKEN, null)
 
     fun saveParentTokens(accessToken: String, refreshToken: String) {
         preferences.edit()

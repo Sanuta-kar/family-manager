@@ -17,7 +17,11 @@ class FamilyMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         val sessionStore = SessionStore(this)
-        val apiClient = ApiClient(tokenProvider = { sessionStore.accessToken() })
+        val apiClient = ApiClient(
+            tokenProvider = { sessionStore.accessToken() },
+            refreshTokenProvider = { sessionStore.refreshToken() },
+            onTokensRefreshed = { access, refresh -> sessionStore.saveTokens(access, refresh) }
+        )
         serviceScope.launch {
             try {
                 apiClient.registerFcmToken(token)
