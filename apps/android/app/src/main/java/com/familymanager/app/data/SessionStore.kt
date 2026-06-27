@@ -19,9 +19,30 @@ class SessionStore(context: Context) {
             .apply()
     }
 
+    // Parent session is stored separately from the child session: the app
+    // toggles between Child and Parent modes on the same device, and the two
+    // roles authenticate with different tokens.
+    fun parentAccessToken(): String? = preferences.getString(KEY_PARENT_ACCESS_TOKEN, null)
+
+    fun saveParentTokens(accessToken: String, refreshToken: String) {
+        preferences.edit()
+            .putString(KEY_PARENT_ACCESS_TOKEN, accessToken)
+            .putString(KEY_PARENT_REFRESH_TOKEN, refreshToken)
+            .apply()
+    }
+
+    fun clearParentSession() {
+        preferences.edit()
+            .remove(KEY_PARENT_ACCESS_TOKEN)
+            .remove(KEY_PARENT_REFRESH_TOKEN)
+            .apply()
+    }
+
     companion object {
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_CHILD_PROFILE_ID = "child_profile_id"
+        private const val KEY_PARENT_ACCESS_TOKEN = "parent_access_token"
+        private const val KEY_PARENT_REFRESH_TOKEN = "parent_refresh_token"
     }
 }

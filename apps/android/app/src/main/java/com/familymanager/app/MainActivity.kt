@@ -6,10 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,11 +31,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.familymanager.app.data.AlertDto
 import com.familymanager.app.data.ApiClient
+import com.familymanager.app.data.BootstrapParentRequest
 import com.familymanager.app.data.ChatMessageDto
+import com.familymanager.app.data.ChildProfileDto
 import com.familymanager.app.data.ClaimDeviceRequest
 import com.familymanager.app.data.MissionOccurrenceDto
+import com.familymanager.app.data.PairingCodeDto
 import com.familymanager.app.data.SessionStore
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
@@ -56,6 +59,8 @@ fun FamilyMissionApp() {
     val context = LocalContext.current
     val sessionStore = remember { SessionStore(context) }
     val apiClient = remember { ApiClient(tokenProvider = { sessionStore.accessToken() }) }
+    // Parent mode authenticates with a separate token from the child session.
+    val parentApiClient = remember { ApiClient(tokenProvider = { sessionStore.parentAccessToken() }) }
     var mode by remember { mutableStateOf(AppMode.Child) }
     var hasChildSession by remember { mutableStateOf(sessionStore.accessToken() != null) }
 
@@ -76,7 +81,7 @@ fun FamilyMissionApp() {
                         onPaired = { hasChildSession = true }
                     )
                 } else {
-                    ParentDashboardScreen()
+                    ParentDashboardScreen(apiClient = parentApiClient, sessionStore = sessionStore)
                 }
             }
         }
@@ -283,28 +288,213 @@ private fun PairDeviceCard(apiClient: ApiClient, sessionStore: SessionStore, onP
 }
 
 @Composable
-private fun ParentDashboardScreen() {
+private fun ParentDashboardScreen(apiClient: ApiClient, sessionStore: SessionStore) {
+    var hasParentSession by remember { mutableStateOf(sessionStore.parentAccessToken() != null) }
+
+    if (!hasParentSession) {
+        ParentAuthCard(
+            apiClient = apiClient,
+            sessionStore = sessionStore,
+            onAuthed = { hasParentSession = true }
+        )
+    } else {
+        ParentDashboard(
+            apiClient = apiClient,
+            onLogout = {
+                sessionStore.clearParentSession()
+                hasParentSession = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ParentAuthCard(apiClient: ApiClient, sessionStore: SessionStore, onAuthed: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var createMode by remember { mutableStateOf(false) }
+    var familyName by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val canSubmit = email.isNotBlank() && password.isNotBlank() &&
+        (!createMode || (familyName.isNotBlank() && name.isNotBlank()))
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (createMode) "Create Family" else "Parent Sign In", style = MaterialTheme.typography.titleLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeButton("Sign in", !createMode) { createMode = false; status = null }
+                ModeButton("Create", createMode) { createMode = true; status = null }
+            }
+            if (createMode) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = familyName,
+                    onValueChange = { familyName = it },
+                    label = { Text("Family name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Your name") },
+                    singleLine = true
+                )
+            }
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = email,
+                onValueChange = { email = it.trim() },
+                label = { Text("Email") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    enabled = !busy && canSubmit,
+                    onClick = {
+                        busy = true
+                        status = null
+                        scope.launch {
+                            try {
+                                val auth = if (createMode) {
+                                    apiClient.bootstrapParent(
+                                        BootstrapParentRequest(
+                                            familyName = familyName.trim(),
+                                            name = name.trim(),
+                                            email = email.trim(),
+                                            password = password
+                                        )
+                                    )
+                                } else {
+                                    apiClient.login(email.trim(), password)
+                                }
+                                sessionStore.saveParentTokens(auth.accessToken, auth.refreshToken)
+                                onAuthed()
+                            } catch (error: Exception) {
+                                status = "${if (createMode) "Create" else "Sign in"} failed: ${error.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (busy) "Working…" else if (createMode) "Create family" else "Sign in")
+                }
+                status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+    }
+}
+
+private sealed interface DashboardState {
+    data object Loading : DashboardState
+    data class Loaded(val children: List<ChildProfileDto>, val alerts: List<AlertDto>) : DashboardState
+    data class Error(val message: String) : DashboardState
+}
+
+@Composable
+private fun ParentDashboard(apiClient: ApiClient, onLogout: () -> Unit) {
+    var state by remember { mutableStateOf<DashboardState>(DashboardState.Loading) }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(reloadKey) {
+        state = DashboardState.Loading
+        state = try {
+            DashboardState.Loaded(apiClient.listChildren(), apiClient.listAlerts())
+        } catch (error: Exception) {
+            DashboardState.Error(error.message ?: "Could not load the dashboard.")
+        }
+    }
+
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Maxim", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Coins: 12")
-                    Text("Open alerts: 0")
+        when (val current = state) {
+            is DashboardState.Loading -> item { LoadingCard() }
+            is DashboardState.Error -> item { ErrorCard(current.message) { reloadKey++ } }
+            is DashboardState.Loaded -> {
+                item { AlertsCard(current.alerts) }
+                if (current.children.isEmpty()) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("No children yet", style = MaterialTheme.typography.titleLarge)
+                                Text("Add a child profile from the backend to pair a device.")
+                            }
+                        }
+                    }
+                } else {
+                    items(current.children, key = { it.id }) { child ->
+                        ChildSummaryCard(child = child, apiClient = apiClient)
+                    }
                 }
             }
         }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Pair Child Device", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Generate a one-time code from the backend and enter it on the child device.")
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = {}) { Text("Generate Code") }
+            OutlinedButton(onClick = onLogout) { Text("Log out") }
+        }
+    }
+}
+
+@Composable
+private fun AlertsCard(alerts: List<AlertDto>) {
+    val open = alerts.filter { it.status.equals("open", ignoreCase = true) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Open alerts: ${open.size}", style = MaterialTheme.typography.titleLarge)
+            if (open.isEmpty()) {
+                Text("Nothing needs your attention.")
+            } else {
+                open.take(5).forEach { alert ->
+                    Text("• ${alert.title}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ChildSummaryCard(child: ChildProfileDto, apiClient: ApiClient) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var pairing by remember { mutableStateOf<PairingCodeDto?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(child.name, style = MaterialTheme.typography.titleLarge)
+            Text("Coins: ${child.coinBalance}")
+            pairing?.let {
+                Text("Pairing code: ${it.code}", style = MaterialTheme.typography.titleMedium)
+                Text("Enter it on the child device within ${it.expiresAtMinutes} min.", style = MaterialTheme.typography.bodySmall)
+            }
+            error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Button(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            pairing = apiClient.createPairingCode(child.id)
+                        } catch (e: Exception) {
+                            error = "Couldn't generate code: ${e.message}"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) { Text(if (busy) "Generating…" else "Generate Code") }
         }
     }
 }

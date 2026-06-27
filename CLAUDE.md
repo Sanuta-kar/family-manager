@@ -67,7 +67,7 @@ Full testing reference: [docs/testing.md](docs/testing.md).
 - **Coins:** awarded idempotently (unique constraint on `CoinLedger.occurrenceId`).
 - **OpenClaw:** local runs use the adapter's deterministic fallback; the real container runs on the VPS alongside the stack.
 - **FCM:** optional locally; the worker skips push silently when `FCM_SERVICE_ACCOUNT_JSON` is unset.
-- **Android:** child device pairing is a real flow; mission cards and the Done/Snooze/Talk and parent "Generate Code" buttons are still stubbed. See [docs/plans/android-bring-up.md](docs/plans/android-bring-up.md).
+- **Android:** child flow (pairing, real today screen, Done/Snooze/Talk, chat + action-draft confirm cards) and parent mode (login/bootstrap, children list, alerts, real "Generate Code") are wired to the API. Remaining: 401 refresh-token flow, runtime permissions, and boot-time alarm rescheduling (Phase 5). See [docs/plans/android-bring-up.md](docs/plans/android-bring-up.md).
 - **Device Action Bridge** (OpenClaw ↔ other Android apps): spec only — see [docs/features/device-action-bridge.md](docs/features/device-action-bridge.md).
 
 Per-feature implementation detail and gaps: [docs/features/](docs/features/).

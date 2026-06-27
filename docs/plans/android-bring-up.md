@@ -55,6 +55,14 @@ The path from "the app compiles" to "real API-backed flows," ordered so the firs
 - Wire "Generate Code" → `POST /devices/pairing-codes` (display the code; optionally a QR).
 - Real children list, coins, alerts.
 
+**Implemented 2026-06-27.**
+
+- **Separate parent session.** `SessionStore` now persists the parent's tokens under their own keys (`parentAccessToken()`, `saveParentTokens(...)`, `clearParentSession()`), independent of the child session — the app toggles Child/Parent on one device and the two roles use different tokens. `FamilyMissionApp` builds a second `ApiClient` (`parentApiClient`) whose `tokenProvider` reads the parent token.
+- **Auth UI.** `ParentAuthCard` offers Sign in / Create modes: Sign in → `apiClient.login(email, password)`; Create → `apiClient.bootstrapParent(...)` with family name + your name. On success it saves the parent tokens and flips to the dashboard. (Bootstrap is one-time per family, so on an already-bootstrapped backend Create returns 400 "Parent bootstrap already completed" — Sign in is the path after that.)
+- **Dashboard.** `ParentDashboard` loads `listChildren()` + `listAlerts()` over a `DashboardState` (Loading → spinner, Error → message + Retry, Loaded → cards). `AlertsCard` shows the open-alert count and first few titles; each `ChildSummaryCard` shows name + `coinBalance` and a real **Generate Code** button → `createPairingCode(childId)`, displaying the one-time `code` and its `expiresAtMinutes` window. Log out clears the parent session.
+- `ApiClient` gained `login`, `listChildren`, `createPairingCode`, `listAlerts` (all via `orThrow()`), plus DTOs `LoginRequest`, `ChildProfileDto`, `PairingCodeRequest`, `PairingCodeDto`, `AlertDto`.
+- **Verified against the live local API (2026-06-27):** `./gradlew :app:compileDebugKotlin` succeeds; and each new endpoint's real response deserializes into its Android DTO — `login` → `{accessToken, refreshToken, user{role:parent}}`; `GET /children` → `{id, name, coinBalance}`; `POST /devices/pairing-codes` → `{code, childProfileId, expiresAtMinutes:15}`; `GET /alerts` → JSON array. (UI rendering verified by compile + parity with the Phase 1–3 screens; not driven on the emulator this phase.)
+
 ## Phase 5 — Real device + resilience
 
 - 401 → refresh-token flow.

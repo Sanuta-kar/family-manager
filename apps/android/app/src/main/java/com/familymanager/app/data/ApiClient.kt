@@ -36,7 +36,39 @@ class ApiClient(
         return client.post("$baseUrl/auth/parent/bootstrap") {
             contentType(ContentType.Application.Json)
             setBody(request)
-        }.body()
+        }.orThrow().body()
+    }
+
+    suspend fun login(email: String, password: String): AuthResponse {
+        return client.post("$baseUrl/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody(LoginRequest(email, password))
+        }.orThrow().body()
+    }
+
+    /** Lists the children in the parent's family (or the child's own profile for
+     *  a child token). Each child carries its current `coinBalance`. */
+    suspend fun listChildren(): List<ChildProfileDto> {
+        return client.get("$baseUrl/children") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow().body()
+    }
+
+    /** Parent-only: mints a one-time pairing code for a child device. The raw
+     *  code is only returned here and is never retrievable again. */
+    suspend fun createPairingCode(childProfileId: String): PairingCodeDto {
+        return client.post("$baseUrl/devices/pairing-codes") {
+            tokenProvider()?.let { bearerAuth(it) }
+            contentType(ContentType.Application.Json)
+            setBody(PairingCodeRequest(childProfileId))
+        }.orThrow().body()
+    }
+
+    /** Parent-only: lists recent escalation alerts (newest first). */
+    suspend fun listAlerts(): List<AlertDto> {
+        return client.get("$baseUrl/alerts") {
+            tokenProvider()?.let { bearerAuth(it) }
+        }.orThrow().body()
     }
 
     suspend fun claimDevice(request: ClaimDeviceRequest): AuthResponse {
@@ -226,3 +258,33 @@ data class SendMessageResponse(
 
 @Serializable
 data class FcmTokenRequest(val fcmToken: String)
+
+@Serializable
+data class LoginRequest(val email: String, val password: String)
+
+@Serializable
+data class ChildProfileDto(
+    val id: String,
+    val name: String,
+    val coinBalance: Int = 0
+)
+
+@Serializable
+data class PairingCodeRequest(val childProfileId: String, val expiresInMinutes: Int? = null)
+
+@Serializable
+data class PairingCodeDto(
+    val code: String,
+    val childProfileId: String,
+    val expiresAtMinutes: Int
+)
+
+@Serializable
+data class AlertDto(
+    val id: String,
+    // "open", "resolved", or "dismissed"
+    val status: String,
+    val title: String,
+    val message: String,
+    val childProfileId: String? = null
+)
