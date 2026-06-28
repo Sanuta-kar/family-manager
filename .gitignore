@@ -41,3 +41,7 @@ proof-storage/
 .vscode/
 .DS_Store
 *.iml
+
+# Local proof uploads (dev)
+var/proof-uploads/
+apps/api/var/

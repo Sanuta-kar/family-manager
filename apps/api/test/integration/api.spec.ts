@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { PrismaClient } from "@prisma/client";
-import { createTestApp, isTestDbAvailable, request, truncateAll } from "./harness";
+import { createTestApp, isTestDbAvailable, request, truncateAll, uploadFile } from "./harness";
 
 const dbAvailable = await isTestDbAvailable();
 if (!dbAvailable) {
@@ -41,6 +41,17 @@ function tapDoneTemplate(childProfileId: string, overrides: Record<string, unkno
     ...overrides
   };
 }
+
+function photoTemplate(childProfileId: string) {
+  return tapDoneTemplate(childProfileId, {
+    title: "Photo of homework",
+    proofPolicy: { mode: "any", rules: [{ type: "photo" }] },
+    rewardPolicy: { coinsOnCompletion: 0 }
+  });
+}
+
+// Minimal valid PNG header bytes; storage only checks the declared mime type.
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7, 6]);
 
 suite("API integration", () => {
   let app: NestFastifyApplication;
@@ -97,6 +108,28 @@ suite("API integration", () => {
     const childProfileId = claimRes.body.childProfileId as string;
 
     return { parentToken, childToken, childId, childProfileId };
+  }
+
+  async function pairAdditionalChild(parentToken: string, name: string) {
+    const childRes = await request(app, {
+      method: "POST",
+      url: "/api/children",
+      token: parentToken,
+      payload: { name }
+    });
+    const childId = childRes.body.id as string;
+    const codeRes = await request(app, {
+      method: "POST",
+      url: "/api/devices/pairing-codes",
+      token: parentToken,
+      payload: { childProfileId: childId }
+    });
+    const claimRes = await request(app, {
+      method: "POST",
+      url: "/api/devices/claim",
+      payload: { code: codeRes.body.code, deviceName: "Tablet", platform: "android" }
+    });
+    return { childToken: claimRes.body.accessToken as string, childProfileId: childId };
   }
 
   // --- auth happy path ---
@@ -330,6 +363,110 @@ suite("API integration", () => {
         payload: { text: "   " }
       });
       expect(empty.status).toBe(400);
+    });
+  });
+
+  // --- proof file storage ---
+
+  describe("proof storage", () => {
+    async function createPhotoOccurrence(parentToken: string, childId: string) {
+      const created = await request(app, {
+        method: "POST",
+        url: "/api/mission-templates",
+        token: parentToken,
+        payload: photoTemplate(childId)
+      });
+      expect(created.status).toBe(201);
+      return created.body.occurrence.id as string;
+    }
+
+    it("uploads a photo, completes the proof, and serves the file back", async () => {
+      const { parentToken, childToken, childProfileId } = await setupParentAndChild();
+      const occurrenceId = await createPhotoOccurrence(parentToken, childProfileId);
+
+      const upload = await uploadFile(app, {
+        url: `/api/mission-occurrences/${occurrenceId}/proofs/uploads`,
+        token: childToken,
+        buffer: PNG_BYTES,
+        filename: "homework.png",
+        contentType: "image/png"
+      });
+      expect(upload.status).toBe(201);
+      expect(upload.body.storageKey).toMatch(new RegExp(`^${occurrenceId}/[^/]+\\.png$`));
+      expect(upload.body.contentType).toBe("image/png");
+      expect(upload.body.sizeBytes).toBe(PNG_BYTES.length);
+
+      const submit = await request(app, {
+        method: "POST",
+        url: `/api/mission-occurrences/${occurrenceId}/proofs`,
+        token: childToken,
+        payload: {
+          type: "photo",
+          payload: {
+            storageKey: upload.body.storageKey,
+            sizeBytes: upload.body.sizeBytes,
+            contentType: upload.body.contentType
+          }
+        }
+      });
+      expect(submit.status).toBe(201);
+      expect(submit.body.status).toBe("completed");
+
+      const proof = await prisma.proofSubmission.findFirstOrThrow({ where: { occurrenceId } });
+
+      const download = await request(app, {
+        method: "GET",
+        url: `/api/mission-occurrences/${occurrenceId}/proofs/${proof.id}/file`,
+        token: parentToken
+      });
+      expect(download.status).toBe(200);
+      expect(download.raw.headers["content-type"]).toContain("image/png");
+      expect(download.raw.rawPayload.equals(PNG_BYTES)).toBe(true);
+    });
+
+    it("rejects a non-image upload with 400", async () => {
+      const { parentToken, childToken, childProfileId } = await setupParentAndChild();
+      const occurrenceId = await createPhotoOccurrence(parentToken, childProfileId);
+
+      const upload = await uploadFile(app, {
+        url: `/api/mission-occurrences/${occurrenceId}/proofs/uploads`,
+        token: childToken,
+        buffer: Buffer.from("not an image"),
+        filename: "note.txt",
+        contentType: "text/plain"
+      });
+      expect(upload.status).toBe(400);
+    });
+
+    it("forbids another child from downloading a proof file", async () => {
+      const { parentToken, childToken, childProfileId } = await setupParentAndChild();
+      const other = await pairAdditionalChild(parentToken, "Bo");
+      const occurrenceId = await createPhotoOccurrence(parentToken, childProfileId);
+
+      const upload = await uploadFile(app, {
+        url: `/api/mission-occurrences/${occurrenceId}/proofs/uploads`,
+        token: childToken,
+        buffer: PNG_BYTES,
+        filename: "homework.png",
+        contentType: "image/png"
+      });
+      await request(app, {
+        method: "POST",
+        url: `/api/mission-occurrences/${occurrenceId}/proofs`,
+        token: childToken,
+        payload: {
+          type: "photo",
+          payload: { storageKey: upload.body.storageKey, sizeBytes: upload.body.sizeBytes }
+        }
+      });
+      const proof = await prisma.proofSubmission.findFirstOrThrow({ where: { occurrenceId } });
+
+      const download = await request(app, {
+        method: "GET",
+        url: `/api/mission-occurrences/${occurrenceId}/proofs/${proof.id}/file`,
+        token: other.childToken
+      });
+      expect(download.status).toBe(403);
     });
   });
 });

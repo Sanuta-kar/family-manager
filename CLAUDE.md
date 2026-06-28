@@ -63,7 +63,7 @@ Full testing reference: [docs/testing.md](docs/testing.md).
 
 ## Current status
 
-- **API / worker / adapter:** real and working. API has Zod input validation on every endpoint (`ZodValidationPipe` + schemas in `packages/shared`) and an integration suite (auth, pairing, RBAC, proof, coin idempotency, chat drafts) plus unit tests; worker has scheduling + push tests. See [docs/testing.md](docs/testing.md#api-integration-tests).
+- **API / worker / adapter:** real and working. API has Zod input validation on every endpoint (`ZodValidationPipe` + schemas in `packages/shared`), local-disk proof file storage (photo upload/download behind `ProofStorageService`), and an integration suite (auth, pairing, RBAC, proof, coin idempotency, chat drafts) plus unit tests; worker has scheduling + push tests. See [docs/testing.md](docs/testing.md#api-integration-tests).
 - **Coins:** awarded idempotently (unique constraint on `CoinLedger.occurrenceId`).
 - **OpenClaw:** local runs use the adapter's deterministic fallback; the real container runs on the VPS alongside the stack.
 - **FCM:** optional locally; the worker skips push silently when `FCM_SERVICE_ACCOUNT_JSON` is unset.

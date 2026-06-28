@@ -6,6 +6,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { ChildrenModule } from "./modules/children/children.module";
 import { DevicesModule } from "./modules/devices/devices.module";
 import { MissionsModule } from "./modules/missions/missions.module";
+import { ProofsModule } from "./modules/proofs/proofs.module";
 import { ChatModule } from "./modules/chat/chat.module";
 import { OpenClawModule } from "./modules/openclaw/openclaw.module";
 import { AlertsModule } from "./modules/alerts/alerts.module";
@@ -24,6 +25,7 @@ import { CoinsModule } from "./modules/coins/coins.module";
     ChildrenModule,
     DevicesModule,
     MissionsModule,
+    ProofsModule,
     ChatModule,
     OpenClawModule,
     AlertsModule,

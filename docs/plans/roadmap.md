@@ -4,17 +4,14 @@ Phased view of where the project is going. Each item links to detail rather than
 
 ## Now
 
-- **Proof storage** — proof upload storage path and real photo metadata handling.
+- **Worker** — get Redis running locally and smoke-test; add snooze-deadline rescheduling tests.
 
 ## Done
 
 - **Documentation system** — canonical `docs/`, `CLAUDE.md`/`AGENTS.md`, human READMEs/guides.
 - **Android bring-up Phases 0–5** — build/pairing, real today screen, mission actions, chat + confirm cards, parent mode, and resilience (401 refresh, runtime notifications permission, boot alarm rescheduling). See [android-bring-up.md](android-bring-up.md).
 - **API hardening** — Zod DTO validation across every endpoint (clean `400`s via `ZodValidationPipe`, schemas in `@family-manager/shared`); integration tests for auth, pairing, protected-mission RBAC, proof rejection, coin idempotency, and chat draft confirmation. See [api hardening in testing.md](../testing.md#api-integration-tests).
-
-## Next
-
-- **Worker** — get Redis running locally and smoke-test; add snooze-deadline rescheduling tests.
+- **Proof storage** — local-disk photo upload/download (`ProofStorageService`, `PROOF_STORAGE_PATH` + Docker volume) behind a swappable interface; upload→`storageKey`→photo proof→parent download, with family/child RBAC and integration tests. See [missions.md](../features/missions.md).
 
 ## Then
 

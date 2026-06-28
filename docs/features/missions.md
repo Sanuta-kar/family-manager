@@ -18,17 +18,20 @@ Mission occurrence statuses: `scheduled`, `notified`, `snoozed`, `proof_pending`
 - `POST /mission-occurrences/:id/snooze` — request a snooze; validated against the snooze policy.
 - `POST /mission-occurrences/:id/done` — submit `tap_done` proof.
 - `POST /mission-occurrences/:id/proofs` — submit geofence/photo/parent-review proof.
+- `POST /mission-occurrences/:id/proofs/uploads` — upload a photo file (multipart); returns the `storageKey` to reference in a `photo` proof.
+- `GET /mission-occurrences/:id/proofs/:proofId/file` — download a stored proof file (parent in family, or the owning child).
 - `POST /mission-occurrences/:id/parent-review` — parent approve/reject.
 - `GET /coins` — child coin balance.
 - `GET /alerts`, `PATCH /alerts/:id` — parent alert list and status update.
 
-Source: `apps/api/src/modules/missions`, `apps/api/src/modules/coins`, `apps/api/src/modules/alerts`.
+Source: `apps/api/src/modules/missions`, `apps/api/src/modules/proofs`, `apps/api/src/modules/coins`, `apps/api/src/modules/alerts`.
 
 ## Current state
 
 Real and working.
 
 - **Proof validation by type:** `tap_done` requires a valid `tappedAt`; `photo` requires a stored upload reference; `geofence_exit` requires valid coordinates and can validate distance against a configured target/radius; `parent_review` cannot be submitted directly by a child proof request.
+- **Proof file storage:** photo uploads are stored on local disk under `PROOF_STORAGE_PATH` (Docker `proof-storage` volume) via `ProofStorageService`, behind an interface so an object-store driver is a contained swap. Upload returns an opaque `storageKey` (namespaced by occurrence); download streams it with the right `Content-Type`, gated by family + child RBAC. Accepts JPEG/PNG/WebP up to 10 MB.
 - **Coin idempotency:** awards are once-per-occurrence, enforced by a unique constraint on `CoinLedger.occurrenceId` (migration `20260613120000_unique_coin_occurrence`) and a caught duplicate-insert path, so concurrent completions cannot double-award.
 - **Scheduling:** occurrences are scheduled in the child profile's timezone.
 - **Snooze:** updates the occurrence deadline; the worker respects the latest deadline rather than the original.
@@ -36,6 +39,5 @@ Real and working.
 
 ## Gaps
 
-- No DTO validation library on request bodies yet.
-- No proof file upload storage path / real photo metadata handling yet.
-- No automated API tests yet (worker scheduling is tested — see [push-notifications.md](push-notifications.md)).
+- Photo proof has no thumbnailing/resizing, EXIF stripping, or virus scanning yet.
+- Mission/proof flows are covered by API integration tests (see [../testing.md](../testing.md#api-integration-tests)); broader edge-case coverage can still grow.

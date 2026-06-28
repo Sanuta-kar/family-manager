@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager?schema=pu
   pnpm --filter @family-manager/api exec prisma migrate status
 ```
 
-Current state: typecheck/test/build pass. The worker has scheduling and push tests. The API has unit tests (the `ZodValidationPipe`, `DevicesService`) plus an integration suite (auth, pairing, RBAC, proof rejection, coin idempotency, chat draft confirm) — see below.
+Current state: typecheck/test/build pass. The worker has scheduling and push tests. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm) — see below.
 
 ### API integration tests
 
