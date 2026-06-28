@@ -26,7 +26,8 @@
     "fastify": "4.28.1",
     "nanoid": "^5.0.9",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.8",

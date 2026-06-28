@@ -10,6 +10,9 @@
     "test": "echo \"No shared tests yet\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
   "devDependencies": {
     "typescript": "^5.7.2"
   }

@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
-import { AuthenticatedUser } from "@family-manager/shared";
+import { AuthenticatedUser, CreateChildInput, CreateChildInputSchema } from "@family-manager/shared";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ChildrenService } from "./children.service";
 
 @UseGuards(JwtAuthGuard)
@@ -15,7 +16,7 @@ export class ChildrenController {
   }
 
   @Post()
-  create(@CurrentUser() user: AuthenticatedUser, @Body() body: { name: string; timezone?: string }) {
+  create(@CurrentUser() user: AuthenticatedUser, @Body(new ZodValidationPipe(CreateChildInputSchema)) body: CreateChildInput) {
     return this.childrenService.create(user, body);
   }
 }

@@ -1,7 +1,22 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
-import { AuthenticatedUser, MissionTemplatePayload } from "@family-manager/shared";
+import {
+  AuthenticatedUser,
+  MissionTemplatePayload,
+  MissionTemplatePayloadSchema,
+  ParentReviewInput,
+  ParentReviewInputSchema,
+  SnoozeInput,
+  SnoozeInputSchema,
+  SubmitProofInput,
+  SubmitProofInputSchema,
+  TodayQuery,
+  TodayQuerySchema,
+  UpdateMissionTemplateInput,
+  UpdateMissionTemplateInputSchema
+} from "@family-manager/shared";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MissionsService } from "./missions.service";
 
 @UseGuards(JwtAuthGuard)
@@ -10,22 +25,37 @@ export class MissionsController {
   constructor(private readonly missionsService: MissionsService) {}
 
   @Post("mission-templates")
-  createTemplate(@CurrentUser() user: AuthenticatedUser, @Body() body: MissionTemplatePayload) {
+  createTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(MissionTemplatePayloadSchema)) body: MissionTemplatePayload
+  ) {
     return this.missionsService.createTemplate(user, body);
   }
 
   @Patch("mission-templates/:id")
-  updateTemplate(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: Partial<MissionTemplatePayload>) {
+  updateTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateMissionTemplateInputSchema)) body: UpdateMissionTemplateInput
+  ) {
     return this.missionsService.updateTemplate(user, id, body);
   }
 
   @Get("children/:childId/missions/today")
-  today(@CurrentUser() user: AuthenticatedUser, @Param("childId") childId: string, @Query("date") date?: string) {
-    return this.missionsService.today(user, childId, date);
+  today(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("childId") childId: string,
+    @Query(new ZodValidationPipe(TodayQuerySchema)) query: TodayQuery
+  ) {
+    return this.missionsService.today(user, childId, query.date);
   }
 
   @Post("mission-occurrences/:id/snooze")
-  snooze(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: { requestedMinutes: number; source?: string }) {
+  snooze(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(SnoozeInputSchema)) body: SnoozeInput
+  ) {
     return this.missionsService.snooze(user, id, body);
   }
 
@@ -38,14 +68,17 @@ export class MissionsController {
   proof(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
-    @Body() body: { type: string; payload: Record<string, unknown>; confidence?: number }
+    @Body(new ZodValidationPipe(SubmitProofInputSchema)) body: SubmitProofInput
   ) {
     return this.missionsService.submitProof(user, id, body);
   }
 
   @Post("mission-occurrences/:id/parent-review")
-  parentReview(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: { action: "approve" | "reject"; note?: string }) {
+  parentReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(ParentReviewInputSchema)) body: ParentReviewInput
+  ) {
     return this.missionsService.parentReview(user, id, body);
   }
 }
-

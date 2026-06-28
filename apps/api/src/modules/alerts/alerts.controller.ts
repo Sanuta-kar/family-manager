@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
-import { AuthenticatedUser } from "@family-manager/shared";
+import { AuthenticatedUser, UpdateAlertInput, UpdateAlertInputSchema } from "@family-manager/shared";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AlertsService } from "./alerts.service";
 
 @UseGuards(JwtAuthGuard)
@@ -15,8 +16,11 @@ export class AlertsController {
   }
 
   @Patch(":id")
-  update(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: { status: string }) {
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(UpdateAlertInputSchema)) body: UpdateAlertInput
+  ) {
     return this.alertsService.update(user, id, body.status);
   }
 }
-

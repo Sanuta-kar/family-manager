@@ -1,7 +1,14 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
-import { AuthenticatedUser } from "@family-manager/shared";
+import {
+  AuthenticatedUser,
+  CreateThreadInput,
+  CreateThreadInputSchema,
+  SendMessageInput,
+  SendMessageInputSchema
+} from "@family-manager/shared";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { JwtAuthGuard } from "../../common/jwt-auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ChatService } from "./chat.service";
 
 @UseGuards(JwtAuthGuard)
@@ -15,7 +22,10 @@ export class ChatController {
   }
 
   @Post("threads")
-  createThread(@CurrentUser() user: AuthenticatedUser, @Body() body: { title?: string; childProfileId?: string }) {
+  createThread(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(CreateThreadInputSchema)) body: CreateThreadInput
+  ) {
     return this.chatService.createThread(user, body);
   }
 
@@ -25,7 +35,11 @@ export class ChatController {
   }
 
   @Post("threads/:id/messages")
-  sendMessage(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: { text: string }) {
+  sendMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(SendMessageInputSchema)) body: SendMessageInput
+  ) {
     return this.chatService.sendMessage(user, id, body.text);
   }
 
@@ -39,4 +53,3 @@ export class ChatController {
     return this.chatService.rejectDraft(user, id);
   }
 }
-
