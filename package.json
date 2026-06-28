@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "test:all": "bash scripts/test-all.sh",
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter @family-manager/api start:dev",
     "dev:worker": "pnpm --filter @family-manager/worker start:dev",

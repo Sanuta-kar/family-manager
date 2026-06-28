@@ -70,6 +70,14 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager_test?sche
 
 Then `pnpm --filter @family-manager/api test` runs unit + integration tests. The suite **skips cleanly with a message** when the test database is unreachable, so `pnpm -r test` stays green in environments without Postgres. Override the connection with `TEST_DATABASE_URL` if needed. Each test truncates all tables for isolation; tests run serially in a single worker.
 
+One command does the whole thing — create the test DB if needed, migrate it, and run every workspace test:
+
+```bash
+pnpm test:all
+```
+
+(wraps `scripts/test-all.sh`; idempotent and safe to re-run. Postgres must be running.)
+
 ## Manual API test flow
 
 Run before Android testing:
