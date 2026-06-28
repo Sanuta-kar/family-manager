@@ -49,7 +49,26 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager?schema=pu
   pnpm --filter @family-manager/api exec prisma migrate status
 ```
 
-Current state: typecheck/test/build pass. The worker has scheduling and push tests. The API has no test files yet and its test script exits with `--passWithNoTests`.
+Current state: typecheck/test/build pass. The worker has scheduling and push tests. The API has unit tests (the `ZodValidationPipe`, `DevicesService`) plus an integration suite (auth, pairing, RBAC, proof rejection, coin idempotency, chat draft confirm) — see below.
+
+### API integration tests
+
+The API integration suite (`apps/api/test/integration/`) boots the real Nest + Fastify app and drives it over HTTP via Fastify's `inject()`, against a dedicated Postgres test database. It never touches the dev database.
+
+One-time setup (Postgres must be running):
+
+```bash
+# create the test database (run once)
+echo "CREATE DATABASE family_manager_test;" | \
+  pnpm --filter @family-manager/api exec prisma db execute \
+  --url "postgresql://family:family@localhost:5433/family_manager?schema=public" --stdin
+
+# apply migrations to it (re-run after adding migrations)
+DATABASE_URL="postgresql://family:family@localhost:5433/family_manager_test?schema=public" \
+  pnpm --filter @family-manager/api exec prisma migrate deploy
+```
+
+Then `pnpm --filter @family-manager/api test` runs unit + integration tests. The suite **skips cleanly with a message** when the test database is unreachable, so `pnpm -r test` stays green in environments without Postgres. Override the connection with `TEST_DATABASE_URL` if needed. Each test truncates all tables for isolation; tests run serially in a single worker.
 
 ## Manual API test flow
 

@@ -4,18 +4,16 @@ Phased view of where the project is going. Each item links to detail rather than
 
 ## Now
 
-- **Android bring-up Phase 1** — real today screen backed by `apiClient.today(childId)`, replacing the hardcoded mission cards. Phase 0 (build, run on emulator, pairing) is complete — see [android-bring-up.md](android-bring-up.md).
+- **Proof storage** — proof upload storage path and real photo metadata handling.
 
 ## Done
 
 - **Documentation system** — canonical `docs/`, `CLAUDE.md`/`AGENTS.md`, human READMEs/guides.
-- **Android Phase 0 baseline** — app builds and pairs against the local API on an emulator (2026-06-21). Gradle wrapper, `gradle.properties`, JVM target, optional Google Services plugin, and a client serialization fix all landed. See the Phase 0 assessment in [android-bring-up.md](android-bring-up.md).
+- **Android bring-up Phases 0–5** — build/pairing, real today screen, mission actions, chat + confirm cards, parent mode, and resilience (401 refresh, runtime notifications permission, boot alarm rescheduling). See [android-bring-up.md](android-bring-up.md).
+- **API hardening** — Zod DTO validation across every endpoint (clean `400`s via `ZodValidationPipe`, schemas in `@family-manager/shared`); integration tests for auth, pairing, protected-mission RBAC, proof rejection, coin idempotency, and chat draft confirmation. See [api hardening in testing.md](../testing.md#api-integration-tests).
 
 ## Next
 
-- **Android bring-up Phases 2–5** — mission actions, chat + confirm cards, parent mode, real-device + resilience. See [android-bring-up.md](android-bring-up.md).
-- **API hardening** — DTO validation (Zod/class-validator); integration tests for auth, pairing, protected-mission RBAC, child reminder flow, proof rejection, coin idempotency, chat draft confirmation.
-- **Proof storage** — proof upload storage path and real photo metadata handling.
 - **Worker** — get Redis running locally and smoke-test; add snooze-deadline rescheduling tests.
 
 ## Then
