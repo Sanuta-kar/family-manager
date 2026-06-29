@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager?schema=pu
   pnpm --filter @family-manager/api exec prisma migrate status
 ```
 
-Current state: typecheck/test/build pass. The worker has scheduling, push, deadline (notify / mark-missed / snooze-rescheduling), and a Redis smoke test. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`, `DeviceCommandsService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm, and the device action bridge loop) — see below.
+Current state: typecheck/test/build pass. The worker has scheduling, push, deadline (notify / mark-missed / snooze-rescheduling), and a Redis smoke test. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`, `DeviceCommandsService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm, and the device action bridge loop) — see below. The OpenClaw adapter has unit tests for its deterministic fallback and response sanitization. The API also fails fast at boot on insecure production config (`config/env.ts`, unit-tested).
 
 ### API integration tests
 

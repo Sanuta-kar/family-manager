@@ -17,7 +17,7 @@ Phased view of where the project is going. Each item links to detail rather than
 
 ## Later (production hardening)
 
-- Replace `JWT_SECRET` and default Postgres credentials.
+- Replace `JWT_SECRET` and default Postgres credentials. _(Enforced: the API fails fast at boot in production if `JWT_SECRET` is unset/default/short or `DATABASE_URL` uses the default `family:family` credentials — see `apps/api/src/config/env.ts`. The values still need to be set per deployment.)_
 - Configure the real FCM service account.
 - Connect the real OpenClaw container on the VPS. See [../deployment.md](../deployment.md).
 - Backup/restore for Postgres and proof storage; logging and monitoring.

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
+import { INSECURE_JWT_DEFAULT } from "./config/env";
 import { PrismaModule } from "./common/prisma.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { ChildrenModule } from "./modules/children/children.module";
@@ -17,7 +18,7 @@ import { CoinsModule } from "./modules/coins/coins.module";
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ["../../.env", ".env"] }),
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET ?? "development-only-change-me",
+      secret: process.env.JWT_SECRET ?? INSECURE_JWT_DEFAULT,
       signOptions: { expiresIn: "15m" }
     }),
     PrismaModule,
