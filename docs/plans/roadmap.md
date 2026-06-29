@@ -4,7 +4,7 @@ Phased view of where the project is going. Each item links to detail rather than
 
 ## Now
 
-- **Device Action Bridge — Android handlers** — server backbone is done (see Done); remaining is the on-device capability-handler registry + mock handler and the first real `read_calendar` handler, which need an emulator. Plan phases 5–6 in [device-action-bridge-plan.md](device-action-bridge-plan.md).
+- **Device Action Bridge — emulator verification** — the on-device handler code (registry, command-pull client, `read_calendar`) is written with JVM unit tests; what remains is end-to-end verification on an emulator (a device pulling a command, a seeded calendar event, the `permission_required` path). Plan phases 5–6 in [device-action-bridge-plan.md](device-action-bridge-plan.md).
 
 ## Done
 

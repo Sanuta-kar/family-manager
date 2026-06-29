@@ -10,6 +10,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.familymanager.app.bridge.DeviceBridge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,6 +67,10 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         setContent {
             FamilyMissionApp()
+        }
+        // App-open poll of the Device Action Bridge queue (no-op without a child session).
+        lifecycleScope.launch {
+            runCatching { DeviceBridge.pollOnce(applicationContext) }
         }
     }
 

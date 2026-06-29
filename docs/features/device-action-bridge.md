@@ -1,10 +1,23 @@
 # Feature: Device Action Bridge
 
-**Status: server backbone implemented; Android handlers pending.** The shared capability
-contracts, server command bus, adapter capability draft, and a no-phone virtual-device
-harness are built and tested (plan phases 1–4). The on-device Android capability-handler
-registry and the first real `read_calendar` handler (phases 5–6) remain and need an
-emulator. Implementation is sequenced in [../plans/device-action-bridge-plan.md](../plans/device-action-bridge-plan.md).
+**Status: server backbone + Android handler code implemented; emulator verification pending.**
+The shared capability contracts, server command bus, adapter capability draft, and a no-phone
+virtual-device harness are built and tested (plan phases 1–4). The on-device Android
+capability-handler registry, command-pull client, and the `read_calendar` handler (phases 5–6)
+are written with JVM unit tests; what remains is end-to-end verification on an emulator (a real
+device pulling a command and a seeded calendar event). Sequenced in
+[../plans/device-action-bridge-plan.md](../plans/device-action-bridge-plan.md).
+
+## On-device (Android) — implemented, emulator verification pending
+
+`apps/android/.../bridge/`: a `CapabilityHandler` registry routes each pulled command to a
+handler (`calendar` → `CalendarCapabilityHandler` over `CalendarContract`; `app_usage` /
+`device_state` → mock handlers for now), `DeviceCommandProcessor` runs the pull → execute →
+report cycle, and `DeviceBridge` wires it for the current child session. `ApiClient` gained
+`pullDeviceCommands` / `postDeviceCommandResult`. The pull is triggered on app-open and on an
+FCM `device_command` ping. A missing `READ_CALENDAR` grant returns `permission_required`.
+JVM unit tests cover the registry routing, the calendar handler's granted/denied paths, and
+the client methods (ktor `MockEngine`).
 
 ## Implemented (V1, read-only context)
 

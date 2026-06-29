@@ -34,18 +34,17 @@ The Android app has reached bring-up Phase 5, so device commands have a real on-
 - Emit a `read_device_context` draft for a test phrase (e.g. "what's on my calendar today"), within `allowedActions`.
 - Acceptance: sending that phrase through the API produces a sanitized read-only capability draft.
 
-### 5. Android capability-handler registry + mock handler ⏳ pending (emulator)
+### 5. Android capability-handler registry + mock handler ✅ code + JVM tests; ⏳ emulator verification pending
 
-- Files: `apps/android`.
-- Add the on-device handler registry, command pull (on FCM ping + on app-open + periodic), and a mock handler returning canned data.
-- Acceptance: emulator pulls a command and posts a synthetic result back through the registry.
+- Files: `apps/android` — `bridge/` package (`CapabilityHandler`, `CapabilityHandlerRegistry`, `DeviceCommandProcessor`, `MockCapabilityHandler`, `DeviceBridge`); `ApiClient.pullDeviceCommands` / `postDeviceCommandResult`; pull wired on app-open (`MainActivity`) and on an FCM `device_command` ping (`FamilyMessagingService`).
+- Tests: `DeviceCommandProcessorTest` (registry routing, unknown→failed, handler-throws→failed) and `ApiClientDeviceCommandsTest` (pull/post) — JVM, via ktor `MockEngine`.
+- **Remaining (emulator):** confirm a real device pulls a command and posts a result end-to-end (e.g. via `scripts/virtual-device.mjs` or a chat calendar request).
 
-### 6. First real capability — `read_calendar` ⏳ pending (emulator)
+### 6. First real capability — `read_calendar` ✅ code + JVM tests; ⏳ emulator verification pending
 
-- Files: `apps/android`.
-- Implement a `read_calendar` handler via `CalendarContract` with the `READ_CALENDAR` runtime permission; missing permission returns `permission_required`.
-- Add a trivial companion stub app (or use the built-in Calendar) as the cross-app target for tests.
-- Acceptance: with a seeded calendar event on the emulator, the handler returns it; without permission, it returns `permission_required`.
+- Files: `apps/android` — `bridge/calendar/` (`CalendarReader` interface, `CalendarCapabilityHandler`, `AndroidCalendarReader` via `CalendarContract`); `READ_CALENDAR` in the manifest. Missing permission returns `permission_required`.
+- Tests: the handler's granted→`completed`+events and denied→`permission_required` paths are covered in `DeviceCommandProcessorTest` with a fake `CalendarReader` (the real `ContentResolver` wrapper is Android-only).
+- **Remaining (emulator):** seed a calendar event (or use a companion stub app) and confirm the handler returns it; confirm `permission_required` without the grant.
 
 ## Out of scope
 

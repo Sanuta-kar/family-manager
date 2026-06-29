@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * @param tokenProvider reads the current access token for this session (child or parent).
@@ -219,6 +220,25 @@ class ApiClient(
             }
         }
     }
+
+    /** Device Action Bridge: pulls this device's open commands (read-only context
+     *  capabilities). The server marks them dispatched on pull. */
+    suspend fun pullDeviceCommands(): List<DeviceCommandDto> {
+        return authed { token ->
+            client.get("$baseUrl/devices/commands") { token?.let { bearerAuth(it) } }
+        }.orThrow().body()
+    }
+
+    /** Reports a command's outcome. Idempotent server-side by command id. */
+    suspend fun postDeviceCommandResult(commandId: String, result: DeviceCommandResultRequest) {
+        authed { token ->
+            client.post("$baseUrl/devices/commands/$commandId/result") {
+                token?.let { bearerAuth(it) }
+                contentType(ContentType.Application.Json)
+                setBody(result)
+            }
+        }.orThrow()
+    }
 }
 
 @Serializable
@@ -350,4 +370,22 @@ data class AlertDto(
     val title: String,
     val message: String,
     val childProfileId: String? = null
+)
+
+@Serializable
+data class DeviceCommandDto(
+    val id: String,
+    // The requested capability, e.g. "calendar", "app_usage", "device_state".
+    val capabilityType: String,
+    // The read_device_context payload (e.g. {kind, range}); extra keys are tolerated.
+    val params: JsonObject = JsonObject(emptyMap()),
+    val status: String = "dispatched"
+)
+
+@Serializable
+data class DeviceCommandResultRequest(
+    // "completed", "failed", or "permission_required".
+    val status: String,
+    val payload: JsonObject? = null,
+    val error: String? = null
 )

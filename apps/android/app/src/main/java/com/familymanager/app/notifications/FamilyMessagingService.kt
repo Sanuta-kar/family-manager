@@ -3,6 +3,7 @@ package com.familymanager.app.notifications
 import android.content.Intent
 import android.util.Log
 import com.familymanager.app.alarm.AlarmActivity
+import com.familymanager.app.bridge.DeviceBridge
 import com.familymanager.app.data.ApiClient
 import com.familymanager.app.data.SessionStore
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -35,6 +36,14 @@ class FamilyMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         Log.i("FamilyMission", "Push received: ${message.data}")
         MissionReminderPush.from(message.data)?.let(::openMissionReminder)
+
+        // Device Action Bridge wake ping: pull and execute any pending device commands.
+        if (message.data["type"] == "device_command") {
+            serviceScope.launch {
+                runCatching { DeviceBridge.pollOnce(applicationContext) }
+                    .onFailure { Log.w("FamilyMission", "Device command poll failed", it) }
+            }
+        }
     }
 
     private fun openMissionReminder(reminder: MissionReminderPush) {
