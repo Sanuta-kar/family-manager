@@ -2,6 +2,7 @@ import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { expandOccurrences } from "./scheduling";
+import { DeadlineDeps, markMissed, notifyOccurrence } from "./deadlines";
 import { FcmPushClient, sendMissionReminderToChildDevices } from "./push";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -11,15 +12,23 @@ const pushClient = new FcmPushClient();
 
 export const missionQueue = new Queue("missions", { connection });
 
+const deadlineDeps: DeadlineDeps = {
+  prisma,
+  queue: missionQueue,
+  sendReminder: async (reminder) => {
+    await sendMissionReminderToChildDevices(prisma, pushClient, reminder);
+  }
+};
+
 const worker = new Worker(
   "missions",
   async (job) => {
     if (job.name === "notify-occurrence") {
-      await notifyOccurrence(job.data.occurrenceId);
+      await notifyOccurrence(deadlineDeps, job.data.occurrenceId);
       return;
     }
     if (job.name === "mark-missed") {
-      await markMissed(job.data.occurrenceId);
+      await markMissed(deadlineDeps, job.data.occurrenceId);
       return;
     }
     if (job.name === "expand-occurrences") {
@@ -34,76 +43,6 @@ const worker = new Worker(
 worker.on("failed", (job, error) => {
   console.error("Mission job failed", job?.id, error);
 });
-
-async function notifyOccurrence(occurrenceId: string) {
-  const occurrence = await prisma.missionOccurrence.findUnique({
-    where: { id: occurrenceId },
-    include: { template: true }
-  });
-  if (!occurrence || occurrence.status !== "scheduled") {
-    return;
-  }
-
-  const deadlineAt = new Date(Date.now() + 15 * 60_000);
-  await prisma.missionOccurrence.update({
-    where: { id: occurrenceId },
-    data: { status: "notified", currentDeadlineAt: deadlineAt }
-  });
-
-  await enqueueMarkMissed(occurrenceId, deadlineAt);
-
-  await sendMissionReminderToChildDevices(prisma, pushClient, {
-    occurrenceId: occurrence.id,
-    childProfileId: occurrence.childProfileId,
-    title: occurrence.template.title,
-    scheduledFor: occurrence.scheduledFor,
-    deadlineAt
-  });
-}
-
-async function markMissed(occurrenceId: string) {
-  const occurrence = await prisma.missionOccurrence.findUnique({
-    where: { id: occurrenceId },
-    include: { template: true }
-  });
-  if (!occurrence || ["completed", "failed", "cancelled", "parent_review"].includes(occurrence.status)) {
-    return;
-  }
-
-  if (occurrence.currentDeadlineAt && occurrence.currentDeadlineAt.getTime() > Date.now()) {
-    await enqueueMarkMissed(occurrenceId, occurrence.currentDeadlineAt);
-    return;
-  }
-
-  await prisma.$transaction([
-    prisma.missionOccurrence.update({
-      where: { id: occurrenceId },
-      data: { status: "failed", failedAt: new Date() }
-    }),
-    prisma.alert.create({
-      data: {
-        familyId: occurrence.familyId,
-        childProfileId: occurrence.childProfileId,
-        occurrenceId,
-        title: "Mission missed",
-        message: `${occurrence.template.title} was not completed by the deadline.`
-      }
-    })
-  ]);
-}
-
-async function enqueueMarkMissed(occurrenceId: string, deadlineAt: Date) {
-  await missionQueue.add(
-    "mark-missed",
-    { occurrenceId },
-    {
-      delay: Math.max(0, deadlineAt.getTime() - Date.now()),
-      jobId: `mark-missed-${occurrenceId}-${deadlineAt.getTime()}`,
-      removeOnComplete: true,
-      attempts: 3
-    }
-  );
-}
 
 async function bootstrap() {
   await missionQueue.add(

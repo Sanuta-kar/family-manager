@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager?schema=pu
   pnpm --filter @family-manager/api exec prisma migrate status
 ```
 
-Current state: typecheck/test/build pass. The worker has scheduling and push tests. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm) — see below.
+Current state: typecheck/test/build pass. The worker has scheduling, push, deadline (notify / mark-missed / snooze-rescheduling), and a Redis smoke test. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm) — see below.
 
 ### API integration tests
 
@@ -77,6 +77,21 @@ pnpm test:all
 ```
 
 (wraps `scripts/test-all.sh`; idempotent and safe to re-run. Postgres must be running.)
+
+### Worker tests + Redis smoke test
+
+The worker's deadline logic (`notify-occurrence`, `mark-missed`, and the snooze-deadline
+rescheduling path) is unit-tested with fakes in `apps/worker/src/deadlines.test.ts` — no Redis
+needed. A separate smoke test (`redis-smoke.test.ts`) boots a real BullMQ `Queue` + `Worker`
+and verifies a job is processed end-to-end. Start Redis first:
+
+```bash
+docker compose -p family-manager -f infra/docker/docker-compose.yml up -d redis
+pnpm --filter @family-manager/worker test
+```
+
+Like the API suite, the smoke test **skips cleanly with a message** when Redis is unreachable
+(override with `REDIS_URL`), so `pnpm -r test` stays green without Redis.
 
 ## Manual API test flow
 
