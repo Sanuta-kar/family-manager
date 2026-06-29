@@ -51,6 +51,16 @@ export class OpenClawService {
       };
     }
 
+    const contextDraft = this.parseDeviceContextDraft(request);
+    if (contextDraft) {
+      return {
+        messageText: "I can read that from your device once you confirm.",
+        actionDraft: contextDraft,
+        reason: "Parsed device-context request with local fallback parser.",
+        safetyFlags: []
+      };
+    }
+
     return {
       messageText:
         request.role === UserRole.Child
@@ -88,6 +98,30 @@ export class OpenClawService {
         },
         rewardPolicy: { coinsOnCompletion: 1 }
       }
+    };
+  }
+
+  private parseDeviceContextDraft(request: OpenClawRequest) {
+    if (!request.allowedActions.includes("read_device_context")) {
+      return undefined;
+    }
+
+    const text = request.messageText.toLowerCase();
+    const kind =
+      /calendar|schedule|agenda/.test(text)
+        ? "calendar"
+        : /app usage|screen time|how (much|long).*(phone|app)/.test(text)
+          ? "app_usage"
+          : /battery|connectivity|device state/.test(text)
+            ? "device_state"
+            : undefined;
+    if (!kind) {
+      return undefined;
+    }
+
+    return {
+      type: ChatActionType.ReadDeviceContext,
+      payload: { kind, range: "today" }
     };
   }
 }

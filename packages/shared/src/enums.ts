@@ -26,7 +26,23 @@ export enum ChatActionType {
   CreateMissionTemplate = "create_mission_template",
   UpdateMissionTemplate = "update_mission_template",
   DeleteMissionTemplate = "delete_mission_template",
-  RequestSnooze = "request_snooze"
+  RequestSnooze = "request_snooze",
+  ReadDeviceContext = "read_device_context"
+}
+
+export enum DeviceCommandStatus {
+  Pending = "pending",
+  Dispatched = "dispatched",
+  Completed = "completed",
+  Failed = "failed",
+  Rejected = "rejected",
+  Expired = "expired"
+}
+
+export enum DeviceCommandResultStatus {
+  Completed = "completed",
+  Failed = "failed",
+  PermissionRequired = "permission_required"
 }
 
 export enum ProofRuleType {

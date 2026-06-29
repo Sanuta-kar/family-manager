@@ -7,19 +7,22 @@ import {
   MissionTemplatePayload,
   OpenClawActionDraft,
   OpenClawAllowedAction,
-  UserRole
+  UserRole,
+  isKnownDeviceCapability
 } from "@family-manager/shared";
 import { PrismaService } from "../../common/prisma.service";
 import { assertChildCanAccess } from "../../common/rbac";
 import { OpenClawService } from "../openclaw/openclaw.service";
 import { MissionsService } from "../missions/missions.service";
+import { DeviceCommandsService } from "../devices/device-commands.service";
 
 @Injectable()
 export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openClaw: OpenClawService,
-    private readonly missions: MissionsService
+    private readonly missions: MissionsService,
+    private readonly deviceCommands: DeviceCommandsService
   ) {}
 
   async listThreads(user: AuthenticatedUser) {
@@ -139,11 +142,7 @@ export class ChatService {
       throw new BadRequestException("Draft expired");
     }
 
-    if (draft.type !== ChatActionType.CreateMissionTemplate) {
-      throw new BadRequestException("Only create mission drafts are supported in V1");
-    }
-
-    const created = await this.missions.createTemplate(user, draft.payload as unknown as MissionTemplatePayload);
+    const created = await this.applyDraft(user, draft.type, draft.payload, draftId);
     await this.prisma.chatActionDraft.update({
       where: { id: draftId },
       data: { status: ChatActionDraftStatus.Confirmed }
@@ -187,11 +186,26 @@ export class ChatService {
   }
 
   private allowedActionsFor(user: AuthenticatedUser): OpenClawAllowedAction[] {
-    const actions: OpenClawAllowedAction[] = ["answer_general_chat", "draft_schedule_change", "write_child_message"];
+    const actions: OpenClawAllowedAction[] = [
+      "answer_general_chat",
+      "draft_schedule_change",
+      "write_child_message",
+      "read_device_context"
+    ];
     if (user.role === UserRole.Child) {
       actions.push("recommend_snooze");
     }
     return actions;
+  }
+
+  private async applyDraft(user: AuthenticatedUser, type: string, payload: unknown, draftId: string) {
+    if (type === ChatActionType.CreateMissionTemplate) {
+      return this.missions.createTemplate(user, payload as unknown as MissionTemplatePayload);
+    }
+    if (type === ChatActionType.ReadDeviceContext) {
+      return this.deviceCommands.createFromReadContextDraft(user, { payload, originDraftId: draftId });
+    }
+    throw new BadRequestException("Only create-mission and read-device-context drafts are supported in V1");
   }
 
   private async buildScheduleContext(user: AuthenticatedUser) {
@@ -235,6 +249,18 @@ export class ChatService {
 
   private validateDraft(user: AuthenticatedUser, draft: OpenClawActionDraft) {
     const errors: string[] = [];
+
+    if (draft.type === ChatActionType.ReadDeviceContext) {
+      const kind = (draft.payload as { kind?: unknown }).kind;
+      if (typeof kind !== "string" || !isKnownDeviceCapability(kind)) {
+        errors.push("Unknown device capability");
+      }
+      if (user.role === UserRole.Child && !user.childProfileId) {
+        errors.push("Child profile required for device context");
+      }
+      return errors;
+    }
+
     if (draft.type !== ChatActionType.CreateMissionTemplate) {
       errors.push("Unsupported action type in V1");
       return errors;

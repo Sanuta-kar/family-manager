@@ -111,8 +111,52 @@ model Device {
   lastSeenAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  commands         DeviceCommand[]
+  capabilityGrants DeviceCapabilityGrant[]
 
   @@index([familyId, childProfileId])
+}
+
+model DeviceCommand {
+  id                   String   @id @default(cuid())
+  deviceId             String
+  device               Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  familyId             String
+  childProfileId       String
+  capabilityType       String
+  params               Json
+  status               String   @default("pending")
+  requiresConfirmation Boolean  @default(false)
+  confirmedBy          String?
+  originDraftId        String?
+  createdAt            DateTime @default(now())
+  expiresAt            DateTime
+  dispatchedAt         DateTime?
+  result               DeviceCommandResult?
+
+  @@index([deviceId, status])
+}
+
+model DeviceCommandResult {
+  id         String        @id @default(cuid())
+  commandId  String        @unique
+  command    DeviceCommand @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  status     String
+  payload    Json?
+  error      String?
+  receivedAt DateTime      @default(now())
+}
+
+model DeviceCapabilityGrant {
+  id             String   @id @default(cuid())
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  capabilityType String
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([deviceId, capabilityType])
 }
 
 model DevicePairingCode {

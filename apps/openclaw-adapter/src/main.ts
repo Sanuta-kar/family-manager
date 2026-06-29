@@ -1,10 +1,19 @@
 import Fastify from "fastify";
 import {
   ChatActionType,
+  OpenClawAllowedAction,
   OpenClawRequest,
   OpenClawResponse,
   UserRole
 } from "@family-manager/shared";
+
+/** The `allowedActions` entry a given action draft type requires to be dispatched. */
+function requiredActionFor(type: ChatActionType): OpenClawAllowedAction {
+  if (type === ChatActionType.ReadDeviceContext) {
+    return "read_device_context";
+  }
+  return "draft_schedule_change";
+}
 
 const server = Fastify({ logger: true });
 const openClawBaseUrl = process.env.OPENCLAW_BASE_URL;
@@ -61,6 +70,18 @@ function deterministicFallback(request: OpenClawRequest): OpenClawResponse {
     };
   }
 
+  const text = request.messageText.toLowerCase();
+  if (request.allowedActions.includes("read_device_context") && /calendar|schedule|agenda/.test(text)) {
+    return {
+      messageText: "I can read your calendar once you confirm.",
+      actionDraft: {
+        type: ChatActionType.ReadDeviceContext,
+        payload: { kind: "calendar", range: "today" }
+      },
+      safetyFlags: []
+    };
+  }
+
   return {
     messageText: "I am here in the family app. I can chat and draft reminders for confirmation.",
     safetyFlags: []
@@ -68,7 +89,7 @@ function deterministicFallback(request: OpenClawRequest): OpenClawResponse {
 }
 
 function sanitizeResponse(request: OpenClawRequest, response: OpenClawResponse): OpenClawResponse {
-  if (response.actionDraft && !request.allowedActions.includes("draft_schedule_change")) {
+  if (response.actionDraft && !request.allowedActions.includes(requiredActionFor(response.actionDraft.type))) {
     return {
       messageText: response.messageText,
       reason: "Removed unsupported action draft.",

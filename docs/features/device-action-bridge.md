@@ -1,6 +1,31 @@
-# Feature: Device Action Bridge (Spec)
+# Feature: Device Action Bridge
 
-**Status: spec only. No bridge code exists yet.** Implementation is sequenced in [../plans/device-action-bridge-plan.md](../plans/device-action-bridge-plan.md) and gated behind the Android bring-up.
+**Status: server backbone implemented; Android handlers pending.** The shared capability
+contracts, server command bus, adapter capability draft, and a no-phone virtual-device
+harness are built and tested (plan phases 1–4). The on-device Android capability-handler
+registry and the first real `read_calendar` handler (phases 5–6) remain and need an
+emulator. Implementation is sequenced in [../plans/device-action-bridge-plan.md](../plans/device-action-bridge-plan.md).
+
+## Implemented (V1, read-only context)
+
+- **Shared contracts** (`packages/shared`): `ChatActionType.ReadDeviceContext`, the
+  `read_device_context` allowed-action, `DeviceCapabilityKind` (calendar/app_usage/device_state),
+  `DEVICE_CAPABILITY_POLICY`, and Zod schemas for the read-context payload and command result.
+- **Server command bus** (`apps/api/src/modules/devices`): `DeviceCommand`,
+  `DeviceCommandResult`, `DeviceCapabilityGrant` tables; `DeviceCommandsService`; endpoints
+  `GET /devices/commands` (device-scoped pull, marks dispatched, expires stale),
+  `POST /devices/commands/:id/result` (idempotent by command, audited), and
+  `PATCH /devices/:deviceId/capabilities/:capabilityType` (parent enable/disable). Commands are
+  created when a `read_device_context` chat draft is confirmed.
+- **Adapter + API fallback**: a calendar/schedule phrase yields a sanitized
+  `read_device_context` draft; sanitize maps each draft type to its required allowed-action.
+- **Virtual-device harness**: `scripts/virtual-device.mjs` pairs/polls/responds with canned
+  data; the same loop is covered in-process by the API integration suite.
+
+**Deferred from this pass:** the FCM data ping on command creation. The durable store + device
+polling (on app-open / periodic) is the source of truth, so the ping is a latency optimization,
+not a correctness requirement (see "Transport / flow" below). Auto-approve for read-only
+capabilities is currently routed through the same Confirm flow as other drafts.
 
 ## Purpose and constraints
 

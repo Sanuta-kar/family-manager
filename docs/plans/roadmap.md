@@ -4,7 +4,7 @@ Phased view of where the project is going. Each item links to detail rather than
 
 ## Now
 
-- **Device Action Bridge implementation** — OpenClaw ↔ other Android apps, read-only context first. Spec: [../features/device-action-bridge.md](../features/device-action-bridge.md); plan: [device-action-bridge-plan.md](device-action-bridge-plan.md).
+- **Device Action Bridge — Android handlers** — server backbone is done (see Done); remaining is the on-device capability-handler registry + mock handler and the first real `read_calendar` handler, which need an emulator. Plan phases 5–6 in [device-action-bridge-plan.md](device-action-bridge-plan.md).
 
 ## Done
 
@@ -13,6 +13,7 @@ Phased view of where the project is going. Each item links to detail rather than
 - **API hardening** — Zod DTO validation across every endpoint (clean `400`s via `ZodValidationPipe`, schemas in `@family-manager/shared`); integration tests for auth, pairing, protected-mission RBAC, proof rejection, coin idempotency, and chat draft confirmation. See [api hardening in testing.md](../testing.md#api-integration-tests).
 - **Proof storage** — local-disk photo upload/download (`ProofStorageService`, `PROOF_STORAGE_PATH` + Docker volume) behind a swappable interface; upload→`storageKey`→photo proof→parent download, with family/child RBAC and integration tests. See [missions.md](../features/missions.md).
 - **Worker** — deadline logic (`notify` / `mark-missed` / snooze-deadline rescheduling) extracted into a testable `deadlines.ts` with unit tests, plus a Redis-gated smoke test that runs a real BullMQ job end-to-end. See [worker testing in testing.md](../testing.md#worker-tests--redis-smoke-test).
+- **Device Action Bridge — server backbone** — shared capability contracts, the `device_commands`/`device_command_results`/`device_capability_grants` command bus (`GET /devices/commands`, idempotent `POST …/result`, parent capability toggle), adapter + API `read_device_context` draft, and a `scripts/virtual-device.mjs` no-phone harness, all integration-tested. Android handlers (phases 5–6) remain. See [device-action-bridge.md](../features/device-action-bridge.md).
 
 ## Later (production hardening)
 

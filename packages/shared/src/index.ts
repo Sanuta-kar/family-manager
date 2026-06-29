@@ -2,12 +2,14 @@ import { ChatActionType, UserRole } from "./enums";
 
 export * from "./enums";
 export * from "./schemas";
+export * from "./device-capabilities";
 
 export type OpenClawAllowedAction =
   | "draft_schedule_change"
   | "recommend_snooze"
   | "write_child_message"
-  | "answer_general_chat";
+  | "answer_general_chat"
+  | "read_device_context";
 
 export type OpenClawRequest = {
   userId: string;

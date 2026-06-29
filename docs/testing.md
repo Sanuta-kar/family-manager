@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://family:family@localhost:5433/family_manager?schema=pu
   pnpm --filter @family-manager/api exec prisma migrate status
 ```
 
-Current state: typecheck/test/build pass. The worker has scheduling, push, deadline (notify / mark-missed / snooze-rescheduling), and a Redis smoke test. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm) — see below.
+Current state: typecheck/test/build pass. The worker has scheduling, push, deadline (notify / mark-missed / snooze-rescheduling), and a Redis smoke test. The API has unit tests (the `ZodValidationPipe`, `DevicesService`, `ProofStorageService`, `DeviceCommandsService`) plus an integration suite (auth, pairing, RBAC, proof rejection, photo proof upload/download, coin idempotency, chat draft confirm, and the device action bridge loop) — see below.
 
 ### API integration tests
 
@@ -92,6 +92,17 @@ pnpm --filter @family-manager/worker test
 
 Like the API suite, the smoke test **skips cleanly with a message** when Redis is unreachable
 (override with `REDIS_URL`), so `pnpm -r test` stays green without Redis.
+
+### Device action bridge (no phone)
+
+The full server↔device command loop is covered in-process by the API integration suite
+(`device action bridge` block). To exercise it manually against a running API without an
+Android device, use the virtual-device harness — it pairs (or takes a child token), polls
+`GET /devices/commands`, and posts synthetic results:
+
+```bash
+node scripts/virtual-device.mjs --code <PAIRING_CODE>   # or: --token <CHILD_JWT>
+```
 
 ## Manual API test flow
 

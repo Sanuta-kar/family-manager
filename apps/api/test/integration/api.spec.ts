@@ -469,4 +469,129 @@ suite("API integration", () => {
       expect(download.status).toBe(403);
     });
   });
+
+  // --- device action bridge (read-only context) ---
+
+  describe("device action bridge", () => {
+    async function requestCalendarCommand(childToken: string) {
+      const thread = await request(app, {
+        method: "POST",
+        url: "/api/chat/threads",
+        token: childToken,
+        payload: {}
+      });
+      const send = await request(app, {
+        method: "POST",
+        url: `/api/chat/threads/${thread.body.id}/messages`,
+        token: childToken,
+        payload: { text: "what's on my calendar today?" }
+      });
+      const actionDraftId = send.body.actionDraftId as string;
+      const confirm = await request(app, {
+        method: "POST",
+        url: `/api/chat/action-drafts/${actionDraftId}/confirm`,
+        token: childToken
+      });
+      return confirm;
+    }
+
+    it("turns a calendar request into a device command, dispatches it, and stores the result", async () => {
+      const { childToken } = await setupParentAndChild();
+
+      const confirm = await requestCalendarCommand(childToken);
+      expect(confirm.status).toBe(201);
+      expect(confirm.body.created.capabilityType).toBe("calendar");
+      expect(confirm.body.created.status).toBe("pending");
+      const commandId = confirm.body.created.id as string;
+
+      // The paired device pulls its queue; the command flips to dispatched.
+      const pull = await request(app, { method: "GET", url: "/api/devices/commands", token: childToken });
+      expect(pull.status).toBe(200);
+      expect(pull.body).toHaveLength(1);
+      expect(pull.body[0]).toMatchObject({ id: commandId, status: "dispatched" });
+
+      // The device reports the result.
+      const result = await request(app, {
+        method: "POST",
+        url: `/api/devices/commands/${commandId}/result`,
+        token: childToken,
+        payload: { status: "completed", payload: { events: [{ title: "Dentist", at: "14:00" }] } }
+      });
+      expect(result.status).toBe(201);
+
+      const stored = await prisma.deviceCommand.findUniqueOrThrow({
+        where: { id: commandId },
+        include: { result: true }
+      });
+      expect(stored.status).toBe("completed");
+      expect(stored.result?.status).toBe("completed");
+
+      const audit = await prisma.agentAuditLog.findFirst({ where: { decisionResult: "completed" } });
+      expect(audit).not.toBeNull();
+
+      // Completed commands no longer appear in the device's open queue.
+      const pullAfter = await request(app, { method: "GET", url: "/api/devices/commands", token: childToken });
+      expect(pullAfter.body).toHaveLength(0);
+    });
+
+    it("is idempotent when a result is posted twice", async () => {
+      const { childToken } = await setupParentAndChild();
+      const commandId = (await requestCalendarCommand(childToken)).body.created.id as string;
+
+      const first = await request(app, {
+        method: "POST",
+        url: `/api/devices/commands/${commandId}/result`,
+        token: childToken,
+        payload: { status: "completed", payload: { events: [] } }
+      });
+      expect(first.status).toBe(201);
+
+      const second = await request(app, {
+        method: "POST",
+        url: `/api/devices/commands/${commandId}/result`,
+        token: childToken,
+        payload: { status: "completed", payload: { events: [{ title: "changed" }] } }
+      });
+      expect(second.status).toBe(201);
+      expect(second.body.idempotent).toBe(true);
+
+      const results = await prisma.deviceCommandResult.findMany({ where: { commandId } });
+      expect(results).toHaveLength(1);
+    });
+
+    it("lets a parent disable a capability, which then refuses the command", async () => {
+      const { parentToken, childToken } = await setupParentAndChild();
+      const device = await prisma.device.findFirstOrThrow({});
+
+      const disable = await request(app, {
+        method: "PATCH",
+        url: `/api/devices/${device.id}/capabilities/calendar`,
+        token: parentToken,
+        payload: { enabled: false }
+      });
+      expect(disable.status).toBe(200);
+
+      const confirm = await requestCalendarCommand(childToken);
+      expect(confirm.status).toBe(403);
+    });
+
+    it("only the owning device can pull and report its commands", async () => {
+      const { parentToken, childToken } = await setupParentAndChild();
+      const other = await pairAdditionalChild(parentToken, "Bo");
+      const commandId = (await requestCalendarCommand(childToken)).body.created.id as string;
+
+      // The other child's device does not see the first device's command.
+      const otherPull = await request(app, { method: "GET", url: "/api/devices/commands", token: other.childToken });
+      expect(otherPull.body).toHaveLength(0);
+
+      // And cannot report a result for it.
+      const otherResult = await request(app, {
+        method: "POST",
+        url: `/api/devices/commands/${commandId}/result`,
+        token: other.childToken,
+        payload: { status: "completed" }
+      });
+      expect(otherResult.status).toBe(404);
+    });
+  });
 });
